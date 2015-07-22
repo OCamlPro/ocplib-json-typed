@@ -12,7 +12,9 @@ type document =
 (** A non toplevel JSON value, structure or immediate. *)
 and value =
   [ `O of (string * value) list
+    (** Cf. {!document}. *)
   | `A of value list
+    (** Cf. {!document}. *)
   | `Bool of bool
     (** A JS boolean [true] or [false]. *)
   | `Float of float
@@ -42,9 +44,25 @@ type ('a, 'b) codec constraint 'b = [< value]
 (** Builds a json value from an OCaml value and a codec encoding. *)
 val construct : ('t, [< value ] as 'k) codec -> 't -> 'k
 
+(** Error descriptions.*)
+type error =
+  | Unexpected of string * string
+  (** Unexpected kind of data encountered (w/ the expectation). *)
+  | No_case_matched of (path * error) list
+  (** Some {!union} couldn't be destructed, w/ the reasons for each {!case}. *)
+  | Bad_array_size of int * int
+  (** Array of unexpected size encountered  (w/ the expectation). *)
+  | Missing_field of string
+  (** Missing field in an object. *)
+  | Unexpected_field of string
+  (** Supernumerary field in an object. *)
+
 (** Exception raised by [codec] directed destructors, with the
-    location in the original JSON structure and a message. *)
-exception Cannot_destruct of path * string
+    location in the original JSON structure and a description. *)
+exception Cannot_destruct of (path * error)
+
+(** Produces a human readable version of an error. *)
+val print_error : Format.formatter -> (path * error) -> unit
 
 (** Reads an OCaml value from a JSON value and a codec encoding.
     May raise [Cannot_destruct]. *)

@@ -11,58 +11,95 @@ type path = path_item list
 and path_item =
   [ `Field of string | `Index of int | `Star ]
 
+let rec print_path ppf = function
+  | [] -> Format.fprintf ppf "/"
+  | `Field n :: rem  -> Format.fprintf ppf "/%s%a" n print_path rem
+  | `Index n :: rem  -> Format.fprintf ppf "[%d]%a" n print_path rem
+  | `Star :: rem  -> Format.fprintf ppf "/*%a" print_path rem
+
 exception Illegal_pointer_notation of string
 
-exception Cannot_destruct of path * string
+type error =
+  | Unexpected of string * string
+  | No_case_matched of (path * error) list
+  | Bad_array_size of int * int
+  | Missing_field of string
+  | Unexpected_field of string
 
-let unexpected k =
-  raise (Cannot_destruct ([], match k with
+exception Cannot_destruct of (path * error)
+
+let rec print_error ppf (path, err) = match err with
+  | Unexpected (unex, ex) ->
+    Format.fprintf ppf "At %a, unexpected %s instead of %s"
+      print_path path
+      unex ex
+  | No_case_matched errs ->
+    let errs = List.map (fun (p, err) -> path @ p, err) errs in
+    Format.fprintf ppf "@[<v 2>At %a, no case matched:@,%a@]"
+      print_path path
+      (Format.pp_print_list print_error) errs
+  | Bad_array_size (unex, ex) ->
+    Format.fprintf ppf "At %a, unexpected array of size %d instead of %d"
+      print_path path
+      unex ex
+  | Missing_field n ->
+    Format.fprintf ppf "Missing object field %a%s"
+      print_path path
+      n
+  | Unexpected_field n ->
+    Format.fprintf ppf "Unexpected object field %a%s"
+      print_path path
+      n
+
+let unexpected kind expected =
+  let kind =match kind with
     | `O _ -> "object"
     | `A _ -> "array"
     | `Null -> "null"
     | `String _ -> "string"
     | `Float _ -> "number"
-    | `Bool _ -> "boolean"))
+    | `Bool _ -> "boolean" in
+  raise (Cannot_destruct ([], Unexpected (kind, expected)))
 
-type (_, 'k) cotcodec =
-  | Null : (unit, [ `Null ]) cotcodec
-  | Int : (int, [ `Float of float ]) cotcodec
-  | Bool : (bool, [ `Bool of bool ]) cotcodec
-  | String : (string, [ `String of string ]) cotcodec
-  | Float : (float, [ `Float of float ]) cotcodec
-  | Array : ('a, [< value ]) cotcodec -> ('a array, [ `A of value list ]) cotcodec
-  | Obj : 'a field -> ('a, [ `O of (string * value) list ]) cotcodec
+type (_, 'k) ucodec =
+  | Null : (unit, [ `Null ]) ucodec
+  | Int : (int, [ `Float of float ]) ucodec
+  | Bool : (bool, [ `Bool of bool ]) ucodec
+  | String : (string, [ `String of string ]) ucodec
+  | Float : (float, [ `Float of float ]) ucodec
+  | Array : ('a, [< value ]) ucodec -> ('a array, [ `A of value list ]) ucodec
+  | Obj : 'a field -> ('a, [ `O of (string * value) list ]) ucodec
   | Objs :
-      ('a, [ `O of (string * value) list ]) cotcodec *
-      ('b, [ `O of (string * value) list ]) cotcodec ->
-    ('a * 'b, [ `O of (string * value) list ]) cotcodec
-  | Tup : ('a, [< value ]) cotcodec -> ('a, [ `A of value list ]) cotcodec
+      ('a, [ `O of (string * value) list ]) ucodec *
+      ('b, [ `O of (string * value) list ]) ucodec ->
+    ('a * 'b, [ `O of (string * value) list ]) ucodec
+  | Tup : ('a, [< value ]) ucodec -> ('a, [ `A of value list ]) ucodec
   | Tups :
-      ('a, [ `A of value list ]) cotcodec *
-      ('b, [ `A of value list ]) cotcodec ->
-    ('a * 'b, [ `A of value list ]) cotcodec
-  | Custom : 'k witness * ('t -> 'k) * (value -> 't) * Json_schema.schema -> ('t, 'k) cotcodec
-  | Conv : ('a -> 'b) * ('b -> 'a) * ('b, 'k) cotcodec -> ('a, 'k) cotcodec
-  | Describe : string option * string option * ('a, 'k) cotcodec -> ('a, 'k) cotcodec
-  | Mu : string * (('a, 'k) cotcodec -> ('a, 'k) cotcodec) -> ('a, 'k) cotcodec
+      ('a, [ `A of value list ]) ucodec *
+      ('b, [ `A of value list ]) ucodec ->
+    ('a * 'b, [ `A of value list ]) ucodec
+  | Custom : 'k witness * ('t -> 'k) * (value -> 't) * Json_schema.schema -> ('t, 'k) ucodec
+  | Conv : ('a -> 'b) * ('b -> 'a) * ('b, 'k) ucodec -> ('a, 'k) ucodec
+  | Describe : string option * string option * ('a, 'k) ucodec -> ('a, 'k) ucodec
+  | Mu : string * (('a, 'k) ucodec -> ('a, 'k) ucodec) -> ('a, 'k) ucodec
 
 and _ field =
-  | Req : string * ('a, [< value ]) cotcodec -> 'a field
-  | Opt : string * ('a, [< value ]) cotcodec -> 'a option field
+  | Req : string * ('a, [< value ]) ucodec -> 'a field
+  | Opt : string * ('a, [< value ]) ucodec -> 'a option field
 
 and _ witness =
   | Document_witness : document witness
   | Value_witness : value witness
   | Obj_witness : [ `O of (string * value) list ] witness
   | Tup_witness : [ `A of value list ] witness
-  | Custom_witness : (_, 'k) cotcodec -> 'k witness
+  | Custom_witness : (_, 'k) ucodec -> 'k witness
 
 let x = Array Int
 
-type ('a, 'b) codec = ('a, 'b) cotcodec constraint 'b = [< value]
+type ('a, 'b) codec = ('a, 'b) ucodec constraint 'b = [< value]
 
 let rec construct
-  : type t k. (t, k) cotcodec -> (t -> k)
+  : type t k. (t, k) ucodec -> (t -> k)
   = function
     | Null -> (fun () -> `Null)
     | Int -> (fun (i : t) -> `Float (float  i))
@@ -95,13 +132,13 @@ let rec construct
       (function (v1, v2) -> let `A l1, `A l2 = w1 v1, w2 v2 in `A (l1 @ l2))
 
 let rec destruct
-  : type t k. (t, k) cotcodec -> (value -> t)
+  : type t k. (t, k) ucodec -> (value -> t)
   = function
-    | Null -> (function `Null -> () | k -> unexpected k)
-    | Int -> (function `Float f -> int_of_float f | k -> unexpected k)
-    | Bool -> (function `Bool b -> (b : t) | k -> unexpected k)
-    | String -> (function `String s -> s | k -> unexpected k)
-    | Float -> (function `Float f -> f | k -> unexpected k)
+    | Null -> (function `Null -> () | k -> unexpected k "null")
+    | Int -> (function `Float f -> int_of_float f | k -> unexpected k "number")
+    | Bool -> (function `Bool b -> (b : t) | k -> unexpected k "boolean")
+    | String -> (function `String s -> s | k -> unexpected k "string")
+    | Float -> (function `Float f -> f | k -> unexpected k "float")
     | Describe (_, _, t) -> destruct t
     | Custom (_, _, r, _) -> r
     | Conv (_, fto, t) -> (fun v -> fto (destruct t v))
@@ -114,16 +151,16 @@ let rec destruct
                try destruct t cell with Cannot_destruct (path, err) ->
                  raise (Cannot_destruct (`Index i :: path, err)))
             (Array.of_list cells)
-        | k -> unexpected k)
+        | k -> unexpected k "array")
     | Obj (Req (n, t)) ->
       (function
         | `O fields ->
           (try destruct t (List.assoc n fields) with
            | Not_found ->
-             raise (Cannot_destruct ([ `Field n ], "missing field"))
+             raise (Cannot_destruct ([], Missing_field n))
            | Cannot_destruct (path, err) ->
              raise (Cannot_destruct (`Field n :: path, err)))
-        | k -> unexpected k)
+        | k -> unexpected k "object")
     | Obj (Opt (n, t)) ->
       (function
         | `O fields ->
@@ -131,33 +168,31 @@ let rec destruct
            | Not_found -> None
            | Cannot_destruct (path, err) ->
              raise (Cannot_destruct (`Field n :: path, err)))
-        | k -> unexpected k)
+        | k -> unexpected k "object")
     | Objs (o1, o2) ->
       (fun j -> destruct o1 j, destruct o2 j)
     | Tup _ as t ->
-      let r, i = destruct_tup 0 (t :> (t, [ `A of value list]) cotcodec) in
+      let r, i = destruct_tup 0 (t :> (t, [ `A of value list]) ucodec) in
       (function
         | `A cells ->
           let cells = Array.of_list cells in
-          if i > Array.length cells then
-            raise (Cannot_destruct ([], "array too small"))
-          else if i < Array.length cells then
-            raise (Cannot_destruct ([], "array too big"))
+          let len = Array.length cells in
+          if i <> Array.length cells then
+            raise (Cannot_destruct ([], Bad_array_size (len, i)))
           else r cells
-        | k -> unexpected k)
+        | k -> unexpected k "array")
     | Tups _ as t ->
       let r, i = destruct_tup 0 t in
       (function
         | `A cells ->
           let cells = Array.of_list cells in
-          if i > Array.length cells then
-            raise (Cannot_destruct ([], "array too big"))
-          else if i < Array.length cells then
-            raise (Cannot_destruct ([], "array too small"))
+          let len = Array.length cells in
+          if i <> Array.length cells then
+            raise (Cannot_destruct ([], Bad_array_size (len, i)))
           else r cells
-        | k -> unexpected k)
+        | k -> unexpected k "array")
 and destruct_tup
-  : type t. int -> (t, [ `A of value list ]) cotcodec -> (value array -> t) * int
+  : type t. int -> (t, [ `A of value list ]) ucodec -> (value array -> t) * int
   = fun i t -> match t with
     | Tup t ->
       (fun arr -> destruct t arr.(i)), succ i
@@ -165,14 +200,69 @@ and destruct_tup
       let r1, i = destruct_tup i t1 in
       let r2, i = destruct_tup i t2 in
       (fun arr -> r1 arr, r2 arr), i
-    | _ ->
-      invalid_arg "Json_typed.destruct_tup"
+    | _ -> invalid_arg "Json_typed.destruct: invalid argument to merge_tups"
 
 let destruct t =
   let d = destruct t in
   fun j -> d (j :> value)
 
-let schema _ = Json_schema.any
+let schema codec =
+  let open Json_schema in
+  let defs = Hashtbl.create 10 in
+  let sch = ref any in
+  let rec object_schema
+    : type t k. (t, [ `O of (string * value) list ]) ucodec -> (string * element * bool) list
+    = function
+    | Obj (Req (n, t)) -> [ n, schema t, true ]
+    | Obj (Opt (n, t)) -> [ n, schema t, false ]
+    | Objs (o1, o2) -> object_schema o1 @ object_schema o2
+    | _ -> invalid_arg "Json_typed.schema: invalid argument to merge_objs"
+  and array_schema
+    : type t k. (t, [ `A of value list ]) ucodec -> element list
+    = function
+    | Tup t -> [ schema t ]
+    | Tups (t1, t2) -> array_schema t1 @ array_schema t2
+    | _ -> invalid_arg "Json_typed.schema: invalid argument to merge_tups"
+  and schema
+    : type t k. (t, k) ucodec -> element
+    = function
+      | Null -> element Null
+      | Int -> element Integer
+      | Bool -> element Boolean
+      | String -> element (String string_specs)
+      | Float -> element Number
+      | Describe (title, description, t) ->
+        { (schema t) with title ; description }
+      | Custom (_, _, _, s) ->
+        sch := fst (merge_definitions (!sch, s)) ;
+        s.root
+      | Conv (_, _, t) -> schema t
+      | Mu (name, self) -> begin
+          try
+            let prev = Hashtbl.find defs [ name ] in
+            if prev <> (element Dummy) && prev <> schema (self (Mu (name, self))) then
+              invalid_arg "Json_typed.schema: duplicate, inconsistent definitions" ;
+            element (Def [ name ])
+          with Not_found ->
+            Hashtbl.replace defs [ name ] (element Dummy) ;
+            let s = schema (self (Mu (name, self))) in
+            Hashtbl.replace defs [ name ] s ;
+            element (Def [ name ])
+        end
+      | Array t ->
+        element (Monomorphic_array (schema t, array_specs))
+      | Obj _ as o -> element (Object { object_specs with properties = object_schema o })
+      | Objs _ as o -> element (Object { object_specs with properties = object_schema o })
+      | Tup _ as t -> element (Array (array_schema t, array_specs))
+      | Tups _ as t -> element (Array (array_schema t, array_specs)) in
+  let root = schema codec in
+  Hashtbl.iter (fun key elt ->
+      sch := fst (add_definition key (element Dummy) !sch))
+    defs ;
+  Hashtbl.iter (fun key elt ->
+      sch := fst (add_definition key elt !sch))
+    defs ;
+  update root !sch
 
 let req n t = Req (n, t)
 let opt n t = Opt (n, t)
@@ -238,8 +328,6 @@ let tup6 f1 f2 f3 f4 f5 f6 =
      (fun (a, (b, (c, (d, (e, f))))) -> (a, b, c, d, e, f)),
      Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, Tup f6))))))
 
-
-
 let custom w r ~schema = Custom (Value_witness, w, r, schema)
 let any = custom (fun value -> value) (fun value -> (value :> value)) Json_schema.any
 let describe ?title ?description t = Describe (title, description, t)
@@ -248,30 +336,32 @@ let string_enum cases =
   let enum = List.map (fun (s, _) -> `String s) cases in
   let rcases = List.map (fun (s, c) -> (c, s)) cases in
   conv
-    (fun v -> try List.assoc v rcases with Not_found -> invalid_arg "Json_typed.string_enum")
+    (fun v -> try List.assoc v rcases with Not_found ->
+       invalid_arg "Json_typed.string_enum")
     (fun s ->
        (try List.assoc s cases with Not_found ->
-         raise (Cannot_destruct ([], "unexpected string"))))
+         let rec orpat ppf = function
+           | [] -> assert false
+           | [ last, _ ] -> Format.fprintf ppf "%S" last
+           | [ prev, _ ; last, _ ] -> Format.fprintf ppf "%S or %S" prev last
+           | (prev, _) :: rem -> Format.fprintf ppf "%S , %a" prev orpat rem in
+         let unexpected = Format.asprintf "string value %S" s in
+         let expected = Format.asprintf "%a" orpat cases in
+         raise (Cannot_destruct ([], Unexpected (unexpected, expected)))))
     ~schema: Json_schema.(update { (element (String specs)) with enum = Some enum } any)
     string
 
-let json_schema =
-  Json_schema.(custom to_json
-                 (fun j -> match of_json j with
-                    | Some v -> v
-                    | None -> raise (Cannot_destruct ([], "invalid inline JSON schema"))) self)
-
-let def name cotcodec =
+let def name ucodec =
   Custom
-    (Custom_witness cotcodec,
-     construct cotcodec,
-     destruct cotcodec,
+    (Custom_witness ucodec,
+     construct ucodec,
+     destruct ucodec,
      (let open Json_schema in
-      let sch = schema cotcodec in
+      let sch = schema ucodec in
       let sch, def = add_definition [ name ] sch.root sch in
       update def sch))
 
-let option : type t k. (t, [< value ]) cotcodec -> (t option, value) cotcodec = fun t ->
+let option : type t k. (t, [< value ]) ucodec -> (t option, value) ucodec = fun t ->
   Custom
     (Value_witness,
      (function None -> `Null | Some v -> (construct t v :> value)),
@@ -281,7 +371,6 @@ let option : type t k. (t, [< value ]) cotcodec -> (t option, value) cotcodec = 
 
 let int32 =
   Conv (Int32.to_float, Int32.of_float, float)
-
 
 let any_value =
   Custom
@@ -294,7 +383,7 @@ let any_document =
   Custom
     (Document_witness,
      (fun value -> value),
-     (function `A _ | `O _ as d -> d | k -> unexpected k),
+     (function `A _ | `O _ as d -> d | k -> unexpected k "array or object"),
      Json_schema.any)
 
 let any_schema =
@@ -302,7 +391,7 @@ let any_schema =
     (Value_witness,
      Json_schema.to_json,
      (fun j -> match Json_schema.of_json j with
-        | None -> raise (Cannot_destruct ([], "bad schema"))
+        | None -> raise (Cannot_destruct ([], Unexpected ("json structure", "a schema")))
         | Some schema -> schema),
      Json_schema.self)
 
@@ -318,8 +407,8 @@ let empty =
      (fun () -> `O []),
      (function
        | `O [] -> ()
-       | `O _ -> raise (Cannot_destruct ([], "non empty object"))
-       | k -> unexpected k),
+       | `O [ f, _] -> raise (Cannot_destruct ([], Unexpected_field f))
+       | k -> unexpected k "an empty object"),
      Json_schema.(create (element (Object { properties = [] ;
                                             pattern_properties = [] ;
                                             additional_properties = None ;
@@ -327,7 +416,6 @@ let empty =
                                             max_properties = Some 0 ;
                                             schema_dependencies = [] ;
                                             property_dependencies = [] }))))
-
 let unit =
   Custom
     (Value_witness,
@@ -355,12 +443,12 @@ let union = function
               | None -> do_cases rest in
           do_cases l),
        (fun v ->
-          let rec do_cases = function
-            | [] -> raise (Cannot_destruct ([], "no case matched"))
+          let rec do_cases errs = function
+            | [] -> raise (Cannot_destruct ([], No_case_matched (List.rev errs)))
             | Case (codec, _, ffrom) :: rest ->
               try ffrom (destruct codec v) with
-                Cannot_destruct _ -> do_cases rest in
-          do_cases l),
+                Cannot_destruct (path, err) -> do_cases ((path, err) :: errs) rest in
+          do_cases [] l),
        Json_schema.combine
          Json_schema.One_of
          (List.map (fun (Case (codec, _, _)) -> schema codec) l))

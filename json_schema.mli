@@ -1,14 +1,24 @@
-(* Abstract representation of JSON schemas as of version
-   http://json-schema.org/draft-04/schema# *)
+(** Abstract representation of JSON schemas as of version
+    [http://json-schema.org/draft-04/schema#] *)
 
-(** In memory JSON data *)
-type json =
-  [ `O of (string * json) list
+(** {2 In memory JSON document representation} ********************************)
+
+(** A non toplevel JSON value, structure or immediate. *)
+type value =
+  [ `O of (string * value) list
+    (** Cf. {!document}. *)
+  | `A of value list
+    (** Cf. {!document}. *)
   | `Bool of bool
+    (** A JS boolean [true] or [false]. *)
   | `Float of float
-  | `A of json list
+    (** A floating point number (double precision). *)
+  | `String of string
+    (** An UTF-8 encoded string. *)
   | `Null
-  | `String of string ]
+    (** The [null] constant. *) ]
+
+(** {2 Abstract representation of schemas} ************************************)
 
 (** The root of the JSON schema *)
 type schema = private
@@ -30,9 +40,9 @@ and element =
     (** An optional short description *)
     description : string option ;
     (** An optional long description *)
-    default : json option ;
+    default : value option ;
     (** A default constant to be substituted in case of a missing value *)
-    enum : json list option ;
+    enum : value list option ;
     (** A valid value must equal one of these constants *)
     kind : element_kind ;
     (** The type-specific part *)
@@ -114,17 +124,10 @@ and string_specs =
     max_length : int option
     (** The maximum string length *) }
 
-(** Formats a JSON schema as its JSON representation *)
-val to_json : schema -> json
-
-(** Parse a JSON structure as a JSON schema, if possible *)
-val of_json : json -> schema option
+(** {2 Combinators to build schemas and elements} *****************************)
 
 (** Construct a naked element (all optional properties to None)  *)
 val element : element_kind -> element
-
-(** A completely generic schema, without any definition *)
-val any : schema
 
 (** Construct a schema from its root, without any definition ; the
     element is checked not to contain any [Def] element *)
@@ -137,6 +140,21 @@ val update : element -> schema -> schema
 
 (** Describes the implemented schema specification as a schema *)
 val self : schema
+
+(** A completely generic schema, without any definition *)
+val any : schema
+
+(** Combines several schemas *)
+val combine : combinator -> schema list -> schema
+
+(** {2 Named definitions} *****************************************************)
+
+(** Merges the definitions of two schemas if possible and returns the
+    updated schemas, so that their elements can be mixed without
+    introducing dangling references ; if two different definitions are
+    bound to the same path, [Invalid_argument
+    "Json_schema.insert_definition"] will be raised *)
+val merge_definitions : schema * schema -> schema * schema
 
 (** Remove the definitions that are not present in the schema *)
 val simplify : schema -> schema
@@ -153,12 +171,21 @@ val find_definition : string list -> schema -> element
 (** Tells if a path leads to a definition *)
 val definition_exists : string list -> schema -> bool
 
-(** Merges the definitions of two schemas if possible and returns the
-    updated schemas, so that their elements can be mixed without
-    introducing dangling references ; if two different definitions are
-    bound to the same path, [Invalid_argument
-    "Json_schema.insert_definition"] will be raised *)
-val merge_definitions : schema * schema -> schema * schema
+(** {2 Predefined values} *****************************************************)
 
-(** Combines several schemas *)
-val combine : combinator -> schema list -> schema
+(** Default Parameters of the [Array] and [MonomorphicArray] type specifiers *)
+val array_specs : array_specs
+
+(** Default parameters of the [Object] type specifier *)
+val object_specs : object_specs
+
+(** Default parameters of the [String] type specifier *)
+val string_specs : string_specs
+
+(** {2 JSON Serialization} ****************************************************)
+
+(** Formats a JSON schema as its JSON representation *)
+val to_json : schema -> value
+
+(** Parse a JSON structure as a JSON schema, if possible. *)
+val of_json : value -> schema option

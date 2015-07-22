@@ -1,11 +1,11 @@
 (* TODO: JSON pointers (other than #/...) *)
 (* TODO: validator *)
 
-type json =
-  [ `O of (string * json) list
+type value =
+  [ `O of (string * value) list
+  | `A of value list
   | `Bool of bool
   | `Float of float
-  | `A of json list
   | `Null
   | `String of string ]
 
@@ -20,8 +20,8 @@ and definitions =
 and element =
   { title : string option ;
     description : string option ;
-    default : json option ;
-    enum : json list option ;
+    default : value option ;
+    enum : value list option ;
     kind : element_kind ;
     format : string option }
 
@@ -326,13 +326,13 @@ let of_json json =
               | _ -> None (* local ref not found *)
             end
         | _ -> None (* local ref not found *)
-      in find [] 2 (json :> json)
+      in find [] 2 (json :> value)
     else
       (* external URI *)
       cb (Ref uri)
 
   (* recursive parser *)
-  and parse_element : type a. json -> (element -> a option) -> a option = fun json cb ->
+  and parse_element : type a. value -> (element -> a option) -> a option = fun json cb ->
     let parse_type : type b. (element option -> b option) -> b option = fun cb ->
       opt_field json "type" @@ function
       | Some (`String name) ->
@@ -413,7 +413,7 @@ let of_json json =
         cb { title ; description ; default ; format ; kind ; enum }
 
   and parse_kind
-    : type a. json -> string -> (element_kind -> a option) -> a option = fun json name cb ->
+    : type a. value -> string -> (element_kind -> a option) -> a option = fun json name cb ->
     match name with
     | "integer" -> cb Integer
     | "number" -> cb Number
@@ -421,7 +421,7 @@ let of_json json =
     | "null" -> cb Null
     | "string" ->
         let parse_string_specs
-          : type a. json -> (string_specs -> a option) -> a option = fun json cb ->
+          : type a. value -> (string_specs -> a option) -> a option = fun json cb ->
           opt_string_field json "pattern" @@ fun pattern ->
           opt_int_field json "minLength" @@ fun min_length ->
           opt_int_field json "maxLength" @@ fun max_length ->
@@ -431,7 +431,7 @@ let of_json json =
         cb (String specs)
     | "array" ->
         let parse_array_specs
-          : type a. json -> (array_specs -> a option) -> a option = fun json cb ->
+          : type a. value -> (array_specs -> a option) -> a option = fun json cb ->
           opt_bool_field false json "uniqueItems" @@ fun unique_items ->
           opt_int_field json "minItems" @@ fun min_items ->
           opt_int_field json "maxItems" @@ fun max_items ->
@@ -464,7 +464,7 @@ let of_json json =
               cb (Monomorphic_array (element Any, specs))
         in parse_array ()
     | "object" ->
-        let parse_required : type a. json -> (string list -> a option) -> a option = fun json cb ->
+        let parse_required : type a. value -> (string list -> a option) -> a option = fun json cb ->
           opt_array_field json "required" @@ function
           | None -> cb []
           | Some l ->
@@ -535,7 +535,7 @@ let of_json json =
                      schema_dependencies ; property_dependencies })
     | _ -> None (* unknown type *)
   in
-  parse_element (json :> json) @@ fun root ->
+  parse_element (json :> value) @@ fun root ->
   Some { root ; definitions = !collected_definitions }
 
 (* browe the schema and try to look up every [Def] *)
@@ -675,3 +675,22 @@ let combine op schemas =
         let sacc, s = merge_definitions (sacc, s) in
         combine sacc (s.root :: eacc) ss
   in combine any [] schemas
+
+(* default specs *)
+let array_specs =
+  { min_items = 0 ;
+    max_items = None ;
+    unique_items = false ;
+    additional_items = None }
+let object_specs =
+  { properties = [] ;
+    pattern_properties = [] ;
+    additional_properties = Some (element Any) ;
+    min_properties = 0 ;
+    max_properties = None ;
+    schema_dependencies = [] ;
+    property_dependencies = [] }
+let string_specs =
+  { pattern = None ;
+    min_length = 0 ;
+    max_length = None }
