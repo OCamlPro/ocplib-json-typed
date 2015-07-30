@@ -1,38 +1,12 @@
 (** Abstract representation of JSON schemas as of version
     [http://json-schema.org/draft-04/schema#] *)
 
-(** {2 In memory JSON document representation} ********************************)
-
-(** A non toplevel JSON value, structure or immediate. *)
-type value =
-  [ `O of (string * value) list
-    (** Cf. {!document}. *)
-  | `A of value list
-    (** Cf. {!document}. *)
-  | `Bool of bool
-    (** A JS boolean [true] or [false]. *)
-  | `Float of float
-    (** A floating point number (double precision). *)
-  | `String of string
-    (** An UTF-8 encoded string. *)
-  | `Null
-    (** The [null] constant. *) ]
+open Json_repr
 
 (** {2 Abstract representation of schemas} ************************************)
 
-(** The root of the JSON schema *)
-type schema = private
-  { root : element ;
-    (** The toplevel node *)
-    definitions : definitions list
-    (** A list of named abbreviations *) }
-
-(** The hierarchy of named definitions *)
-and definitions = private
-  | Group of string * definitions list
-  (** A named subtree *)
-  | Definition of string * element
-  (** A named element definition *)
+(** A JSON schema root *)
+type schema
 
 (** A node in the schema, embeds all type-agnostic specs *)
 and element =
@@ -47,7 +21,9 @@ and element =
     kind : element_kind ;
     (** The type-specific part *)
     format : string option ;
-    (** predefined formats such as [date-time], [email], [ipv4], [ipv6], [uri], *) }
+    (** predefined formats such as [date-time], [email], [ipv4], [ipv6], [uri], *)
+    id : string option
+    (** An optional ID. *) }
 
 (** The type-specific part of schema nodes *)
 and element_kind =
@@ -59,10 +35,12 @@ and element_kind =
   (** A variable-length array with the type of its children *)
   | Combine of combinator * element list
   (** A mix of schemas using logical combinators *)
-  | Def of string list
-  (** A named ref to an element in the [definitions] table *)
-  | Ref of string
-  (** An external reference *)
+  | Def_ref of string
+  (** A ref to an element from its path in the JSON representation *)
+  | Id_ref of string
+  (** A ref to an element from its ID *)
+  | Ext_ref of Uri.t
+  (** A ref to an external element *)
   | String of string_specs (** A string (with optional characteristics) *)
   | Integer (** Any int *)
   | Number (** Any number *)
@@ -71,7 +49,7 @@ and element_kind =
   | Any (** Any JSON value *)
   | Dummy
   (** For building cyclic definitions, a definition bound to a dummy
-      will be considered absent for {!insert_definition} but present
+      will be considered absent for {!add_definition} but present
       for {!update}. The idea is to insert a dummy definition, build a
       cyclic structure using it for recursion, and finally update the
       definition with the structure. *)
@@ -133,9 +111,12 @@ val element : element_kind -> element
     element is checked not to contain any [Def] element *)
 val create : element -> schema
 
+(** Extract the root element from an existing schema *)
+val root : schema -> element
+
 (** Update a schema from its root, using the definitions from an
     existing schema ; the element is checked to contain only valid
-    [Def] elements ; unused definitions are kept, see {simplify} *)
+    [Def] elements ; unused definitions are kept, see {!simplify}. *)
 val update : element -> schema -> schema
 
 (** Describes the implemented schema specification as a schema *)
@@ -159,17 +140,17 @@ val merge_definitions : schema * schema -> schema * schema
 (** Remove the definitions that are not present in the schema *)
 val simplify : schema -> schema
 
-(** Adds a definition by its path, may raise [Invalid_argument
-    "Json_schema.insert_definition"] if this path is invalid or
-    already used, returns the modified schema and the [Def] node that
-    references this definition to be used in the schema *)
-val add_definition : string list -> element -> schema -> schema * element
+(** Adds a definition by its path, id or name. May raise
+    [Invalid_argument "Json_schema.insert_definition"] if this path is
+    invalid or already used, returns the modified schema and the [Def]
+    node that references this definition to be used in the schema *)
+val add_definition : string -> element -> schema -> schema * element
 
 (** Finds a definition by its path, may raise [Not_found] *)
-val find_definition : string list -> schema -> element
+val find_definition : string -> schema -> element
 
 (** Tells if a path leads to a definition *)
-val definition_exists : string list -> schema -> bool
+val definition_exists : string -> schema -> bool
 
 (** {2 Predefined values} *****************************************************)
 
@@ -185,7 +166,28 @@ val string_specs : string_specs
 (** {2 JSON Serialization} ****************************************************)
 
 (** Formats a JSON schema as its JSON representation *)
-val to_json : schema -> value
+val to_json : schema -> [> document ]
 
-(** Parse a JSON structure as a JSON schema, if possible. *)
-val of_json : value -> schema option
+(** Parse a JSON structure as a JSON schema, if possible.
+    May throw {!Cannot_parse}. *)
+val of_json : value -> schema
+
+(** {2 Errors} ****************************************************************)
+
+(** An error happened during parsing.
+    May box one of the following exceptions, among others. *)
+exception Cannot_parse of path * exn
+
+(** A reference to a non-existent location was detected. *)
+exception Dangling_reference of Uri.t
+
+(** A reference litteral could not be understood. *)
+exception Bad_reference of string
+
+(** An unexpected kind of JSON value was encountered. *)
+exception Unexpected of string * string
+
+(** Produces a human readable version of an error. *)
+val print_error
+  : ?print_unknown: (Format.formatter -> exn -> unit) ->
+  Format.formatter -> exn -> unit

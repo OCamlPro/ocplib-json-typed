@@ -1,38 +1,6 @@
 (** JSON structure description using dependently typed combinators. *)
 
-(** {2 In memory JSON document representation} ********************************)
-
-(** A JSON document, that cannot be an immediate. *)
-type document =
-  [ `O of (string * value) list
-    (** An object [{ "name": value, ...  }], with UTF-8 encoded names. *)
-  | `A of value list
-    (** An array [[ value, ... ]] .*) ]
-
-(** A non toplevel JSON value, structure or immediate. *)
-and value =
-  [ `O of (string * value) list
-    (** Cf. {!document}. *)
-  | `A of value list
-    (** Cf. {!document}. *)
-  | `Bool of bool
-    (** A JS boolean [true] or [false]. *)
-  | `Float of float
-    (** A floating point number (double precision). *)
-  | `String of string
-    (** An UTF-8 encoded string. *)
-  | `Null
-    (** The [null] constant. *) ]
-
-(** {2 Paths in JSON documents} ***********************************************)
-
-(** An abstract type for paths, independent from concrete formats. *)
-type path = path_item list
-
-and path_item =
-  [ `Field of string
-  | `Index of int
-  | `Star ]
+open Json_repr
 
 (** {2 Dependent types describing JSON document structures} *******************)
 
@@ -43,26 +11,6 @@ type ('a, 'b) codec constraint 'b = [< value]
 
 (** Builds a json value from an OCaml value and a codec encoding. *)
 val construct : ('t, [< value ] as 'k) codec -> 't -> 'k
-
-(** Error descriptions.*)
-type error =
-  | Unexpected of string * string
-  (** Unexpected kind of data encountered (w/ the expectation). *)
-  | No_case_matched of (path * error) list
-  (** Some {!union} couldn't be destructed, w/ the reasons for each {!case}. *)
-  | Bad_array_size of int * int
-  (** Array of unexpected size encountered  (w/ the expectation). *)
-  | Missing_field of string
-  (** Missing field in an object. *)
-  | Unexpected_field of string
-  (** Supernumerary field in an object. *)
-
-(** Exception raised by [codec] directed destructors, with the
-    location in the original JSON structure and a description. *)
-exception Cannot_destruct of (path * error)
-
-(** Produces a human readable version of an error. *)
-val print_error : Format.formatter -> (path * error) -> unit
 
 (** Reads an OCaml value from a JSON value and a codec encoding.
     May raise [Cannot_destruct]. *)
@@ -272,7 +220,22 @@ val conv :
   ('a, 'k) codec
 
 (** A fixpoint combinator. Links a recursive OCaml type to an internal
-    JSON schema reference (using the first parameter as name). *)
+    JSON schema reference, by allowing to use the codec inside its own
+    definition. The first parameter is a name that must be unique to
+    encode the recursivity as a named reference in the JSON schema.
+
+    Here is an example to turn a standard OCaml list into either
+    ["nil"] for [[]] or [{"hd":hd,"tl":tl}] for [hd::tl].
+
+    {[ let reclist itemcodec =
+         mu "list" @@ fun self ->
+         union
+           [ case (string_enum [ "nil", () ])
+               (function [] -> Some () | _ :: _ -> None)
+               (fun () -> []) ;
+             case (obj2 (req "hd" itemcodec) (req "tl" self))
+               (function hd :: tl -> Some (hd, tl) | [] -> None)
+               (fun (hd, tl) -> hd :: tl) ]) ]} *)
 val mu : string -> (('a, 'k) codec -> ('a, 'k) codec) -> ('a, 'k) codec
 
 (** A raw JSON value. *)
@@ -300,3 +263,33 @@ val describe :
 
 (** Name a definition so its occurences can be shared in the JSON schema. *)
 val def : string -> ('t, 'k) codec -> ('t, 'k) codec
+
+(** {2 Errors} ****************************************************************)
+
+(** Exception raised by destructors, with the location in the original
+    JSON structure and the specific error. *)
+exception Cannot_destruct of (path * exn)
+
+(** Unexpected kind of data encountered (w/ the expectation). *)
+exception Unexpected of string * string
+
+(** Some {!union} couldn't be destructed, w/ the reasons for each {!case}. *)
+exception No_case_matched of exn list
+
+(** Array of unexpected size encountered  (w/ the expectation). *)
+exception Bad_array_size of int * int
+
+(** Missing field in an object. *)
+exception Missing_field of string
+
+(** Supernumerary field in an object. *)
+exception Unexpected_field of string
+
+(** Bad custom schema encountered. *)
+exception Bad_schema of exn
+
+(** Produces a human readable version of an error. *)
+val print_error
+  : ?print_unknown: (Format.formatter -> exn -> unit) ->
+  Format.formatter -> exn -> unit
+

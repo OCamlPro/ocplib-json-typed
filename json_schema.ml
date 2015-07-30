@@ -1,21 +1,18 @@
-(* TODO: JSON pointers (other than #/...) *)
 (* TODO: validator *)
 
-type value =
-  [ `O of (string * value) list
-  | `A of value list
-  | `Bool of bool
-  | `Float of float
-  | `Null
-  | `String of string ]
+open Json_repr
 
+(* The currently handled version *)
+let version = "http://json-schema.org/draft-04/schema#"
+
+(* The root of a schema with the named definitions,
+   a precomputed ID-element map and a cache for external documents. *)
 type schema =
   { root : element ;
-    definitions : definitions list }
-
-and definitions =
-  | Group of string * definitions list
-  | Definition of string * element
+    source : Uri.t (* whose fragment should be empty *) ;
+    definitions : (string * element) list ;
+    ids : (string * element) list ;
+    world : schema list }
 
 and element =
   { title : string option ;
@@ -23,15 +20,17 @@ and element =
     default : value option ;
     enum : value list option ;
     kind : element_kind ;
-    format : string option }
+    format : string option ;
+    id : string option }
 
 and element_kind =
   | Object of object_specs
   | Array of element list * array_specs
   | Monomorphic_array of element * array_specs
   | Combine of combinator * element list
-  | Def of string list
-  | Ref of string
+  | Def_ref of string
+  | Id_ref of string
+  | Ext_ref of Uri.t
   | String of string_specs
   | Integer | Number | Boolean | Null | Any
   | Dummy
@@ -62,520 +61,510 @@ and string_specs =
 (* box an element kind without any optional field *)
 let element kind =
   { title = None ; description = None ; default = None ; kind ;
-    format = None ; enum = None }
+    format = None ; enum = None ; id = None }
 
 (* internal definition finding *)
-let rec find_definition path tree =
-  match tree, path with
-  | Definition (n, elt) :: _, [ hd ] when n = hd ->
-      elt
-  | Group (n, defs) :: _, hd :: tl when n = hd ->
-      find_definition tl defs
-  | g :: rest, path  ->
-      find_definition path rest
-  | _, []
-  | [], _ -> raise Not_found
+let find_definition name defs =
+  List.assoc name defs
 
 (* internal definition existence test *)
-let rec definition_exists path tree =
-  match tree, path with
-  | Definition (n, elt) :: _, [ hd ] when n = hd ->
-      true
-  | Group (n, defs) :: _, hd :: tl when n = hd ->
-      definition_exists tl defs
-  | g :: rest, path  ->
-      definition_exists path rest
-  | _, []
-  | [], _ -> false
+let definition_exists name defs =
+  List.mem_assoc name defs
 
 (* internal definition insertion *)
-let rec insert_definition path elt tree =
-  match tree, path with
-  | _, [] ->
-      invalid_arg "Json_schema.insert_definition"
-  | Definition (n, prev) :: rest, [ hd ] when n = hd ->
-      if prev.kind = Dummy || prev = elt then
-        Definition (n, elt) :: rest
-      else
-        invalid_arg "Json_schema.insert_definition"
-  | Definition (n, _) :: _, hd :: _ when n = hd ->
-      invalid_arg "Json_schema.insert_definition"
-  | Group (n, _) :: _, [ hd ] when n = hd ->
-      invalid_arg "Json_schema.insert_definition"
-  | Group (n, defs) :: rest, hd :: (_ :: _ as tl) when n = hd ->
-      Group (n, insert_definition tl elt defs) :: rest
-  | Group (n, _) as g :: rest, hd :: _ :: _ when n = hd ->
-      g :: insert_definition path elt rest
-  | g :: rest, path  ->
-      g :: insert_definition path elt rest
-  | [], hd :: (_ :: _ as tl) ->
-      [ Group (hd, insert_definition tl elt []) ]
-  | [], [ hd ] ->
-      [ Definition (hd, elt) ]
+let insert_definition name elt defs =
+  let rec insert = function
+    | [] ->
+      [ (name, elt) ]
+    | (defname, _) as def :: rem when defname <> name ->
+      def :: insert rem
+    | (_, { kind = Dummy }) :: rem ->
+      (name, elt) :: rem
+    | (_, defelt) :: rem ->
+      if elt <> defelt then invalid_arg "Json_schema.insert_definition" ;
+      (name, elt) :: rem in
+  insert defs
 
 (* OCaml definition -> JSON encoding *)
 let to_json schema =
   (* functional JSON building combinators *)
-  let option_field v f cb (`O fs) =
-    match v with
-    | Some v -> `O ((f, cb v) :: fs)
-    | None -> `O fs in
-  let list_field v f cb (`O fs) =
-    match v with
-    | [] -> `O fs
-    | _ -> `O ((f, cb v) :: fs) in
-  let neq_field v v' f cb (`O fs) =
-    if v <> v' then
-      `O ((f, cb v) :: fs)
-    else
-      `O fs in
+  let (@) (`O l1) (`O  l2) = `O (l1 @ l2) in
+  let set_always f v = `O [ f, v ] in
+  let set_if_some f v cb = match v with None -> `O [] | Some v -> `O [ f, cb v ] in
+  let set_if_cons f v cb = match v with [] -> `O [] | v -> `O [ f, cb v ] in
+  let set_if_neq f v v' cb = if v <> v' then `O [ f, cb v ] else `O [] in
   (* recursive encoder *)
-  let rec format_element { title ; description ; default ; enum ; kind ; format } =
-    (match kind with
-     | Object specs ->
-         let required = List.fold_left
-             (fun r (n, _, p) -> if p then `String n :: r else r)
-             [] specs.properties in
-         let main_properties =
-           `O [ "type", `String "object" ;
-                    "properties", `O (List.map
-                                            (fun (n, elt, _) -> n, format_element elt)
-                                            specs.properties) ] in
-         main_properties |>
-         list_field required
-           "required"
-           (fun l -> `A l) |>
-         list_field specs.pattern_properties
-           "patternProperties"
-           (fun fs -> `O (List.map (fun (n, elt) -> n, format_element elt) fs)) |>
-         neq_field specs.additional_properties (Some (element Any))
-           "additionalProperties"
-           (function
-             | None -> `Bool false
-             | Some elt -> format_element elt) |>
-         neq_field specs.min_properties 0
-           "minProperties"
-           (fun i -> `Float (float i)) |>
-         option_field specs.max_properties
-           "maxProperties"
-           (fun i -> `Float (float i)) |>
-         list_field specs.schema_dependencies
-           "schemaDependencies"
-           (fun fs -> `O (List.map (fun (n, elt) -> n, format_element elt) fs)) |>
-         list_field specs.property_dependencies
-           "propertyDependencies"
-           (fun fs ->
-              let property_dependencies =
-                List.map (fun (n, ls) -> n, `A (List.map (fun s -> `String s) ls)) fs in
-              `O property_dependencies)
-     | Array (elts, specs) ->
-         let main_properties =
-           `O [ "type", `String "array" ;
-                    "items", `A (List.map format_element elts) ] in
-         main_properties |>
-         neq_field specs.min_items 0
-           "minItems"
-           (fun i -> `Float (float i)) |>
-         option_field specs.max_items
-           "maxItems"
-           (fun i -> `Float (float i)) |>
-         neq_field specs.unique_items false
-           "uniqueItems"
-           (fun b -> `Bool b) |>
-         neq_field specs.additional_items (Some (element Any))
-           "additionalItems"
-           (function
-             | None -> `Bool false
-             | Some elt -> format_element elt)
-     | Monomorphic_array (elt, {min_items ; max_items ; unique_items }) ->
-         let main_properties =
-           `O [ "type", `String "array" ;
-                    "items", format_element elt] in
-         main_properties |>
-         neq_field min_items 0
-           "minItems"
-           (fun i -> `Float (float i)) |>
-         option_field max_items
-           "maxItems"
-           (fun i -> `Float (float i)) |>
-         neq_field unique_items false
-           "uniqueItems"
-           (fun b -> `Bool b)
-     | Combine (c, elts) ->
-         let combinator = function
-           | Any_of -> "anyOf"
-           | One_of -> "oneOf"
-           | All_of -> "allOf" (* TODO: flatten when possible *)
-           | Not -> "not"
-         in
-         `O [ combinator c,  `A (List.map format_element elts) ]
-     | Ref path ->
-         `O [ "$ref", `String path ]
-     | Def path ->
-         `O [ "$ref", `String (String.concat "/" ("#" :: "definitions" :: path)) ]
-     | Integer ->
-         `O [ "type", `String "integer" ]
-     | Number ->
-         `O [ "type", `String "number" ]
-     | String { pattern ; min_length ; max_length } ->
-         `O [ "type", `String "string" ] |>
-         neq_field min_length 0
-           "minLength"
-           (fun i -> `Float (float i)) |>
-         option_field max_length
-           "maxLength"
-           (fun i -> `Float (float i)) |>
-         option_field pattern
-           "pattern"
-           (fun s -> `String s)
-     | Boolean ->
-         `O [ "type", `String "boolean" ]
-     | Null ->
-         `O [ "type", `String "null" ]
-     | Dummy ->
-         invalid_arg "Json_schema.to_json"
-     | Any ->
-         `O []) |>
-    option_field default "default" (fun j -> j) |>
-    option_field enum "enum" (fun js -> `A js) |>
-    option_field format "format" (fun s -> `String s)|>
-    option_field description "description" (fun s -> `String s) |>
-    option_field title
-      "title"
-      (fun s -> `String s)
-  in
-  match format_element schema.root, schema.definitions with
-  | res, [] -> res
-  | `O fs, l ->
-      let rec build_defs = function
-        | Definition (n, elt) :: tl -> (n, format_element elt) :: build_defs tl
-        | Group (n, defs) :: tl -> (n, `O (build_defs defs)) :: build_defs tl
-        | [] -> []
-      in
-      `O (("definitions", `O (build_defs l)) :: fs)
-  | _ -> assert false
+  let rec format_element
+    : 'a. element -> ([> `O of (string * value) list ] as 'a)
+    = fun { title ; description ; default ; enum ; kind ; format } ->
+      set_if_some "title" title (fun s -> `String s) @
+      set_if_some "description" description (fun s -> `String s) @
+      begin match kind with
+        | Object specs ->
+          let required = List.fold_left
+              (fun r (n, _, p) -> if p then `String n :: r else r)
+              [] specs.properties in
+          let properties =
+            List.map
+              (fun (n, elt, _) -> n, format_element elt)
+              specs.properties in
+          set_always "type" (`String "object") @
+          set_always "properties" (`O properties) @
+          set_if_cons "required" required (fun l -> `A l) @
+          set_if_cons "patternProperties" specs.pattern_properties
+            (fun fs -> `O (List.map (fun (n, elt) -> n, format_element elt) fs)) @
+          set_if_neq "additionalProperties"  specs.additional_properties (Some (element Any))
+            (function
+              | None -> `Bool false
+              | Some elt -> format_element elt) @
+          set_if_neq "minProperties" specs.min_properties 0
+            (fun i -> `Float (float i)) @
+          set_if_some "maxProperties" specs.max_properties
+            (fun i -> `Float (float i)) @
+          set_if_cons "schemaDependencies" specs.schema_dependencies
+            (fun fs -> `O (List.map (fun (n, elt) -> n, format_element elt) fs)) @
+          set_if_cons "propertyDependencies" specs.property_dependencies
+            (fun fs ->
+               let property_dependencies =
+                 List.map (fun (n, ls) -> n, `A (List.map (fun s -> `String s) ls)) fs in
+               `O property_dependencies)
+        | Array (elts, specs) ->
+          set_always "type" (`String "array") @
+          set_always "items" (`A (List.map format_element elts)) @
+          set_if_neq "minItems" specs.min_items 0 (fun i -> `Float (float i)) @
+          set_if_some "maxItems" specs.max_items (fun i -> `Float (float i)) @
+          set_if_neq "uniqueItems" specs.unique_items false (fun b -> `Bool b) @
+          set_if_neq "additionalItems"
+            specs.additional_items (Some (element Any))
+            (function
+              | None -> `Bool false
+              | Some elt -> format_element elt)
+        | Monomorphic_array (elt, {min_items ; max_items ; unique_items }) ->
+          set_always "type" (`String "array") @
+          set_always "items" (format_element elt) @
+          set_if_neq "minItems"
+            min_items 0
+            (fun i -> `Float (float i)) @
+          set_if_some "maxItems"
+            max_items
+            (fun i -> `Float (float i)) @
+          set_if_neq "uniqueItems"
+            unique_items false
+            (fun b -> `Bool b)
+        | Combine (c, elts) ->
+          let combinator = function
+            | Any_of -> "anyOf"
+            | One_of -> "oneOf"
+            | All_of -> "allOf"
+            | Not -> "not" in
+          set_always (combinator c) (`A (List.map format_element elts))
+        | Def_ref name ->
+          set_always "$ref" (`String ("#" ^ name))
+        | Id_ref name ->
+          set_always "$ref" (`String ("#" ^ name))
+        | Ext_ref uri ->
+          set_always "$ref" (`String (Uri.to_string uri))
+        | Integer ->
+          set_always "type" (`String "integer")
+        | Number ->
+          set_always "type" (`String "number")
+        | String { pattern ; min_length ; max_length } ->
+          set_always "type" (`String "string") @
+          set_if_neq "minLength" min_length 0 (fun i -> `Float (float i)) @
+          set_if_some "maxLength" max_length (fun i -> `Float (float i)) @
+          set_if_some "pattern" pattern (fun s -> `String s)
+        | Boolean ->
+          `O [ "type", `String "boolean" ]
+        | Null ->
+          `O [ "type", `String "null" ]
+        | Dummy ->
+          invalid_arg "Json_schema.to_json"
+        | Any -> `O [] end @
+      set_if_some "default" default  (fun j -> j) @
+      set_if_some "enum" enum (fun js -> `A js) @
+      set_if_some "format" format (fun s -> `String s) in
+  let json =
+    List.fold_left (fun acc (n, elt) ->
+        insert (path_of_json_pointer n) (format_element elt) acc)
+      (set_always "$schema" (`String version) @ format_element schema.root)
+      schema.definitions in
+  match json with `O _ as json -> json | _ -> assert false (* absurd *)
 
 (* JSON encoding -> OCaml definition *)
+exception Cannot_parse of path * exn
+exception Dangling_reference of Uri.t
+exception Bad_reference of string
+exception Unexpected of string * string
+
+let rec print_error ?print_unknown ppf = function
+  | Cannot_parse (path, exn) ->
+    Format.fprintf ppf
+      "@[<v 2>Schema parse error:@,At %a@,%a@]"
+      Json_repr.print_path_as_json_path path
+      (print_error ?print_unknown) exn
+  | Dangling_reference uri ->
+    Format.fprintf ppf
+      "Dangling reference %s" (Uri.to_string uri)
+  | Bad_reference str ->
+    Format.fprintf ppf
+      "Illegal reference notation %s" str
+  | Unexpected (unex, ex) ->
+    Format.fprintf ppf
+      "Unexpected %s instead of %s" unex ex
+  | exn ->
+    Json_repr.print_error ?print_unknown ppf exn
+
+let unexpected kind expected =
+  let kind =match kind with
+    | `O [] -> "empty object"
+    | `A [] -> "empty array"
+    | `O _ -> "object"
+    | `A _ -> "array"
+    | `Null -> "null"
+    | `String "" -> "empty string"
+    | `String _ -> "string"
+    | `Float _ -> "number"
+    | `Bool _ -> "boolean" in
+  Cannot_parse ([], Unexpected (kind, expected))
+
+let at_path p = function Cannot_parse (l, err) -> Cannot_parse (p @ l, err) | exn -> exn
+let at_field n = at_path [ `Field n ]
+let at_index i = at_path [ `Index i ]
+
 let of_json json =
   (* parser combinators *)
-  let opt_field obj n cb =
-    match obj with
-    | `O ls ->
-        let v = try Some (List.assoc n ls) with Not_found -> None in
-        cb v
-    | _ -> cb None
-  in
-  let opt_string_field obj n cb = opt_field obj n @@
-    function Some (`String s) -> cb (Some s)
-           | Some _ -> None (* type error *)
-           | None -> cb None in
-  let opt_bool_field def obj n cb = opt_field obj n @@
-    function Some (`Bool b) -> cb b
-           | Some _ -> None (* type error *)
-           | None -> cb def in
-  let int f = if floor f = f then Some (int_of_float f) else None in
-  let opt_int_field obj n cb = opt_field obj n @@
-    function Some (`Float n) -> cb (int n)
-           | Some _ -> None (* type error *)
-           | None -> cb None in
-  let opt_array_field obj n cb = opt_field obj n @@
-    function Some (`A s) -> cb (Some s)
-           | Some _ -> None (* type error *)
-           | None -> cb None in
+  let opt_field obj n = match obj with
+    | `O ls -> (try Some (List.assoc n ls) with Not_found -> None)
+    | _ -> None in
+  let opt_string_field obj n = match opt_field obj n with
+    | Some (`String s) -> Some s
+    | Some k -> raise @@ at_field n @@ unexpected k "string"
+    | None -> None in
+  let opt_bool_field def obj n = match opt_field obj n with
+    | Some (`Bool b) -> b
+    | Some k -> raise @@ at_field n @@ unexpected k "bool"
+    | None -> def in
+  let opt_int_field obj n = match opt_field obj n with
+    | Some (`Float f) when floor f = f -> Some (int_of_float f)
+    | Some k -> raise @@ at_field n @@ unexpected k "integer"
+    | None -> None in
+  let opt_array_field obj n = match opt_field obj n with
+    | Some (`A s) -> Some s
+    | Some k -> raise @@ at_field n @@ unexpected k "array"
+    | None -> None in
+  let opt_uri_field obj n = match opt_string_field obj n with
+    | None -> None
+    | Some uri ->
+      match Uri.canonicalize (Uri.of_string uri) with
+      | exception exn -> raise (Cannot_parse ([], Bad_reference (uri ^ " is not a valid URI")))
+      | uri -> Some uri in
   (* local resolution of definitions *)
+  let schema_source = match opt_uri_field json "id" with
+    | Some uri -> Uri.with_fragment uri None
+    | None -> Uri.empty in
   let collected_definitions = ref [] in
-  let rec collect_definition
-    : type a. string -> (element_kind -> a option) -> a option = fun uri cb ->
-    if String.length uri >= 2
-    && String.get uri 0 = '#'
-    && String.get uri 1 = '/' then
-      (* local ref *)
-      let rec find path idx root =
-        let stop = try Some (String.index_from uri idx '/') with Not_found -> None in
-        match stop with
-        | Some stop ->
-            let field = String.sub uri idx (stop - idx) in
-            find_field field root @@ fun root ->
-            find (field :: path) (stop + 1) root
-        | None ->
-            let field = String.sub uri idx (String.length uri - idx) in
-            find_field field root @@ fun root ->
-            let name =
-              match List.rev (field :: path) with
-              | [] -> [ "__root__" ]
-              | "definitions" :: tl -> tl
-              | tl -> "__root__" :: tl in
-            if definition_exists name !collected_definitions then
-              cb (Def name)
-            else begin
-              (* dummy insertion so we don't recurse *)
-              collected_definitions := insert_definition name (element Dummy) !collected_definitions ;
-              parse_element root @@ fun elt ->
-              (* actual insertion *)
-              collected_definitions := insert_definition name elt !collected_definitions ;
-              cb (Def name)
-            end
-      and find_field field root cb =
-        match root with
-        | `O l ->
-            begin try cb (List.assoc field l) with
-              | Not_found -> None (* local ref not found *)
-            end
-        | `A l ->
-            begin try cb (List.nth l (int_of_string field)) with
-              | _ -> None (* local ref not found *)
-            end
-        | _ -> None (* local ref not found *)
-      in find [] 2 (json :> value)
-    else
-      (* external URI *)
-      cb (Ref uri)
-
+  let collected_id_defs = ref [] in
+  let collected_id_refs = ref [] in
+  let rec collect_definition : Uri.t -> element_kind = fun uri ->
+    match Uri.host uri, Uri.fragment uri with
+    | Some _ (* Actually means: any of host, user or port is defined. *), _ ->
+      Ext_ref uri
+    | None, None ->
+      raise (Cannot_parse ([], Bad_reference (Uri.to_string uri ^ " has no fragment")))
+    | None, Some fragment when not (String.contains fragment '/') ->
+      collected_id_refs := fragment :: !collected_id_refs ;
+      Id_ref fragment
+    | None, Some fragment ->
+      let path = try path_of_json_pointer fragment with err -> raise (Cannot_parse ([], err)) in
+      try
+        let raw = query path json in
+        if not (definition_exists fragment !collected_definitions) then begin
+          (* dummy insertion so we don't recurse and we support cycles *)
+          collected_definitions := insert_definition fragment (element Dummy) !collected_definitions ;
+          let elt = try parse_element schema_source raw with err -> raise @@ at_path path @@ err in
+          (* actual insertion *)
+          collected_definitions := insert_definition fragment elt !collected_definitions
+        end ;
+        Def_ref fragment
+      with Not_found -> raise (Cannot_parse ([], Dangling_reference uri))
   (* recursive parser *)
-  and parse_element : type a. value -> (element -> a option) -> a option = fun json cb ->
-    let parse_type : type b. (element option -> b option) -> b option = fun cb ->
-      opt_field json "type" @@ function
-      | Some (`String name) ->
-          parse_kind json name @@ fun kind ->
-          cb (Some (element kind))
-      | Some (`A l) ->
-          let rec items acc = function
+  and parse_element : Uri.t -> value -> element = fun source json ->
+    let id = opt_uri_field json "id" in
+    let id, source = match id with
+      | None -> None, source
+      | Some uri ->
+        let uri = Uri.canonicalize (Uri.resolve "http" source uri) in
+        Uri.fragment uri, Uri.with_fragment uri None in
+    (* We don't support inlined schemas, so we just drop elements with
+       external sources and replace them with external references. *)
+    if source <> schema_source then
+      element (Ext_ref (Uri.with_fragment source id))
+    else
+      let id = match id with
+        | None -> None
+        | Some id when String.contains id '/' ->
+          raise (at_field "id" @@ Cannot_parse ([], Bad_reference (id ^ " is not a valid ID")))
+        | Some id -> Some id in
+      (* We parse the various element syntaxes and combine them afterwards. *)
+      (* 1. An element with a known type field and associated fields. *)
+      let as_kind =
+        match opt_field json "type" with
+        | Some (`String name) ->
+          Some (element (parse_element_kind source json name))
+        | Some (`A [] as k) ->
+          raise @@ at_field "type" @@ unexpected k "type, type array or operator"
+        | Some (`A l) ->
+          let rec items i acc = function
             | [] ->
-                let kind = Combine (Any_of, List.rev acc) in
-                cb (Some (element kind))
+              let kind = Combine (Any_of, List.rev acc) in
+              Some (element kind)
             | `String name :: tl ->
-                parse_kind json name @@ fun kind ->
-                let case = element kind in
-                items (case :: acc) tl
-            | _ :: tl -> None (* type name must be a string *)
-          in items [] l
-      | Some _ -> None (* type name must be a string *)
-      | None -> cb None
-    in
-    (* reference *)
-    let parse_ref : type a. (element option -> a option) -> a option = fun cb ->
-      opt_field json "$ref" @@ function
-      | Some (`String uri) ->
-          collect_definition uri @@ fun path ->
-          cb (Some (element path))
-      | Some _ ->
-          None (* type error *)
-      | None -> cb None in
-    (* logical combinators *)
-    let rec parse_nary name combinator others cb =
-      let build = function
-        | [] -> cb None (* not found and no auxiliary case *)
-        | [ case ] -> cb (Some case) (* one case -> simplify *)
-        | cases -> (* several cases build the combination node with empty options *)
+              let kind = parse_element_kind source json name in
+              let case = element kind in
+              items (succ i) (case :: acc) tl
+            | k :: tl ->
+              raise @@ at_field "type" @@ at_index i @@ unexpected k "type"
+          in items 0 [] l
+        | Some k ->
+          raise @@ at_field "type" @@ unexpected k "type, type array or operator"
+        | None -> None in
+      (* 2. A reference *)
+      let as_ref =
+        match opt_uri_field json "$ref" with
+        | Some uri ->
+          let path = collect_definition uri in
+          Some (element path)
+        | None -> None in
+      (* 3. Combined schemas *)
+      let rec as_nary name combinator others =
+        let build = function
+          | [] -> None (* not found and no auxiliary case *)
+          | [ case ] -> Some case  (* one case -> simplify *)
+          | cases -> (* several cases build the combination node with empty options *)
             let kind = Combine (combinator, cases) in
-            cb (Some (element kind))
-      in
-      opt_field json name @@ function
-      | Some (`A (_ :: _ as cases)) (* list of schemas *) ->
-          let rec items acc = function
+            Some (element kind) in
+        match opt_field json name with
+        | Some (`A (_ :: _ as cases)) (* list of schemas *) ->
+          let rec items i acc = function
             | elt :: tl ->
-                parse_element elt @@ fun elt ->
-                items (elt :: acc) tl
+              let elt = try parse_element source elt with err -> raise @@ at_field name @@ at_index i @@ err in
+              items (succ i) (elt :: acc) tl
             | [] ->
-                build (others @ List.rev acc)
-          in items [] cases
-      | None ->
-          build others
-      | _ -> None  in
-    (* (unary) schema negation *)
-    let rec parse_not cb =
-      opt_field json "not" @@ function
-      | None -> cb None
-      | Some elt ->
-          parse_element elt @@ fun elt ->
+              build (others @ List.rev acc)
+          in items 0 [] cases
+        | None -> build others
+        | Some k -> raise @@ at_field name @@ unexpected k "a list of elements" in
+      (* 4. Negated schema *)
+      let rec as_not =
+        match opt_field json "not" with
+        | None -> None
+        | Some elt ->
+          let elt = try parse_element source elt with err -> raise @@ at_field "not" err in
           let kind = Combine (Not, [ elt ]) in
-          cb (Some (element kind)) in
-    (* parse optional fields *)
-    opt_string_field json "title" @@ fun title ->
-    opt_string_field json "description" @@ fun description ->
-    opt_field json "default" @@ fun default ->
-    opt_array_field json "enum" @@ fun enum ->
-    opt_string_field json "format" @@ fun format ->
-    (* combine all specifications under a big conjunction *)
-    parse_type @@ fun r_type ->
-    parse_ref @@ fun r_ref ->
-    parse_not @@ fun r_not ->
-    parse_nary "oneOf" One_of [] @@ fun r_one_of ->
-    parse_nary "anyOf" Any_of [] @@ fun r_any_of ->
-    let (@::) e l = match e with None -> l | Some e -> e :: l in
-    let cases = r_type @:: r_ref @:: r_not @:: r_one_of @:: r_any_of @:: [] in
-    parse_nary "allOf" All_of cases @@ function
-    | None ->
-        (* no type, ref or logical combination found *)
-        cb { title ; description ; default ; format ; kind = Any ; enum }
-    | Some { kind } ->
-        (* rewrite the result with optional fields *)
-        cb { title ; description ; default ; format ; kind ; enum }
-
-  and parse_kind
-    : type a. value -> string -> (element_kind -> a option) -> a option = fun json name cb ->
-    match name with
-    | "integer" -> cb Integer
-    | "number" -> cb Number
-    | "boolean" -> cb Boolean
-    | "null" -> cb Null
-    | "string" ->
-        let parse_string_specs
-          : type a. value -> (string_specs -> a option) -> a option = fun json cb ->
-          opt_string_field json "pattern" @@ fun pattern ->
-          opt_int_field json "minLength" @@ fun min_length ->
-          opt_int_field json "maxLength" @@ fun max_length ->
+          Some (element kind) in
+      (* parse optional fields *)
+      let title = opt_string_field json "title" in
+      let description = opt_string_field json "description" in
+      let default = opt_field json "default" in
+      let enum = opt_array_field json "enum" in
+      let format = opt_string_field json "format" in (* TODO: check format ? *)
+      (* combine all specifications under a big conjunction *)
+      let as_one_of = as_nary "oneOf" One_of [] in
+      let as_any_of = as_nary "anyOf" Any_of [] in
+      let all = [ as_kind ; as_ref ; as_not ; as_one_of ; as_any_of ] in
+      let cases = List.flatten (List.map (function None -> [] | Some e -> [ e ]) all) in
+      let kind = match as_nary "allOf" All_of cases with
+        | None -> Any (* no type, ref or logical combination found *)
+        | Some { kind } -> kind in
+      (* add optional fields *)
+      { title ; description ; default ; format ; kind ; enum ; id }
+  and parse_element_kind
+    : type a. Uri.t -> value -> string -> element_kind
+    = fun source json name ->
+      match name with
+      | "integer" -> Integer
+      | "number" -> Number
+      | "boolean" -> Boolean
+      | "null" -> Null
+      | "string" ->
+        let specs =
+          let pattern = opt_string_field json "pattern" in
+          let min_length = opt_int_field json "minLength" in
+          let max_length = opt_int_field json "maxLength" in
           let min_length = match min_length with None -> 0 | Some l -> l in
-          cb { pattern ; min_length ; max_length } in
-        parse_string_specs json @@ fun specs ->
-        cb (String specs)
-    | "array" ->
-        let parse_array_specs
-          : type a. value -> (array_specs -> a option) -> a option = fun json cb ->
-          opt_bool_field false json "uniqueItems" @@ fun unique_items ->
-          opt_int_field json "minItems" @@ fun min_items ->
-          opt_int_field json "maxItems" @@ fun max_items ->
+          { pattern ; min_length ; max_length } in
+        String specs
+      | "array" ->
+        let specs =
+          let unique_items = opt_bool_field false json "uniqueItems" in
+          let min_items = opt_int_field json "minItems" in
+          let max_items = opt_int_field json "maxItems" in
           let min_items = match min_items with None -> 0 | Some l -> l in
-          opt_field json "additionalItems" @@ function
+          match opt_field json "additionalItems" with
           | None | Some (`Bool true) ->
-              cb { min_items ; max_items ; unique_items ; additional_items = Some (element Any) }
+            { min_items ; max_items ; unique_items ; additional_items = Some (element Any) }
           | Some (`Bool false) ->
-              cb { min_items ; max_items ; unique_items ; additional_items = None }
+            { min_items ; max_items ; unique_items ; additional_items = None }
           | Some elt ->
-              parse_element elt @@ fun elt ->
-              cb { min_items ; max_items ; unique_items ; additional_items = Some elt } in
-        let parse_array () =
-          opt_field json "items" @@ function
+            let elt = try parse_element source elt with err -> raise @@ at_field "additionalItems" err in
+            { min_items ; max_items ; unique_items ; additional_items = Some elt } in
+        begin match opt_field json "items" with
           | Some (`A elts) ->
-              let rec elements acc = function
-                | [] ->
-                    parse_array_specs json @@ fun specs ->
-                    cb (Array (List.rev acc, specs))
-                | elt :: tl ->
-                    parse_element elt @@ fun elt ->
-                    elements (elt :: acc) tl
-              in elements [] elts
+            let rec elements i acc = function
+              | [] ->
+                Array (List.rev acc, specs)
+              | elt :: tl ->
+                let elt = try parse_element source elt with err -> raise @@ at_field "items" @@ at_index i @@  err in
+                elements (succ i) (elt :: acc) tl
+            in elements 0 [] elts
           | Some elt ->
-              parse_element elt @@ fun elt ->
-              parse_array_specs json @@ fun specs ->
-              cb (Monomorphic_array (elt, specs))
+            let elt = try parse_element source elt with err -> raise @@ at_field "items" err in
+            Monomorphic_array (elt, specs)
           | None ->
-              parse_array_specs json @@ fun specs ->
-              cb (Monomorphic_array (element Any, specs))
-        in parse_array ()
-    | "object" ->
-        let parse_required : type a. value -> (string list -> a option) -> a option = fun json cb ->
-          opt_array_field json "required" @@ function
-          | None -> cb []
+            Monomorphic_array (element Any, specs) end
+      | "object" ->
+        let required =
+          match opt_array_field json "required" with
+          | None ->  []
           | Some l ->
-              let rec items acc = function
-                | `String s :: tl -> items (s :: acc) tl
-                | [] -> cb (List.rev acc)
-                | _ -> None (* type error *)
-              in items [] l in
-        let parse_properties required json cb =
-          opt_field json "properties" @@ function
+            let rec items i acc = function
+              | `String s :: tl -> items (succ i) (s :: acc) tl
+              | [] -> List.rev acc
+              | k :: _ -> raise @@ at_field "required" @@ at_index i @@ unexpected k "string"
+            in items 0 [] l in
+        let properties =
+          match opt_field json "properties" with
           | Some (`O props) ->
-              let rec items acc = function
-                | [] -> cb (List.rev acc)
-                | (n, elt) :: tl ->
-                    parse_element elt @@ fun elt ->
-                    let req = List.mem n required in
-                    items ((n, elt, req) :: acc) tl
-              in items [] props
-          | None -> cb []
-          | _ -> None (* missing field or type error *) in
-        let parse_additional_properties json cb =
-          opt_field json "additionalProperties" @@ function
-          | Some (`Bool false)->
-              cb None
-          | None | Some (`Bool true)->
-              cb (Some (element Any))
+            let rec items acc = function
+              | [] -> List.rev acc
+              | (n, elt) :: tl ->
+                let elt = try parse_element source elt with err -> raise @@ at_field "properties" @@ at_field n @@ err in
+                let req = List.mem n required in
+                items ((n, elt, req) :: acc) tl
+            in items [] props
+          | None -> []
+          | Some k -> raise @@ at_field "properties" @@ unexpected k "object" in
+        let additional_properties =
+          match opt_field json "additionalProperties" with
+          | Some (`Bool false)-> None
+          | None | Some (`Bool true)-> Some (element Any)
           | Some elt ->
-              parse_element elt @@ fun elt ->
-              cb (Some elt) in
-        let parse_element_assoc field json cb =
-          opt_field json field @@ function
-          | None -> cb []
-          | Some (`O props) ->
-              let rec items acc = function
-                | [] -> cb (List.rev acc)
-                | (n, elt) :: tl ->
-                    parse_element elt @@ fun elt ->
-                    items ((n, elt) :: acc) tl
-              in items [] props
-          | Some _ -> None in
-        let parse_property_dependencies json cb =
-          opt_field json "propertyDependencies" @@ function
-          | None -> cb []
+            let elt = try parse_element source elt with err -> raise @@ at_field "additionalProperties" err in
+            Some elt in
+        let property_dependencies =
+          match opt_field json "propertyDependencies" with
+          | None -> []
           | Some (`O l) ->
-              let rec sets sacc = function
-                | (n, `A l) :: tl ->
-                    let rec strings acc = function
-                      | [] -> sets ((n, List.rev acc) :: sacc) tl
-                      | `String s :: tl -> strings (s :: acc) tl
-                      | _ -> None
-                    in strings [] l
-                | _ :: tl -> None
-                | [] -> cb (List.rev sacc)
-              in sets [] l
-          | Some _ -> None in
-        parse_required json @@ fun required ->
-        parse_properties required json @@ fun properties ->
-        parse_element_assoc "patternProperties" json @@ fun pattern_properties ->
-        parse_additional_properties json @@ fun additional_properties ->
-        opt_int_field json "minProperties" @@ fun min_properties ->
-        let min_properties = match min_properties with None -> 0 | Some l -> l in
-        opt_int_field json "maxProperties" @@ fun max_properties ->
-        parse_element_assoc "schemaDependencies" json @@ fun schema_dependencies ->
-        parse_property_dependencies json @@ fun property_dependencies ->
-        cb (Object { properties ; pattern_properties ;
-                     additional_properties ;
-                     min_properties ; max_properties ;
-                     schema_dependencies ; property_dependencies })
-    | _ -> None (* unknown type *)
-  in
-  parse_element (json :> value) @@ fun root ->
-  Some { root ; definitions = !collected_definitions }
+            let rec sets sacc = function
+              | (n, `A l) :: tl ->
+                let rec strings j acc = function
+                  | [] -> sets ((n, List.rev acc) :: sacc) tl
+                  | `String s :: tl -> strings (succ j) (s :: acc) tl
+                  | k :: _ ->
+                    raise @@ at_field "propertyDependencies" @@ at_field n @@ at_index j @@ unexpected k "string"
+                in strings 0 [] l
+              | (n, k) :: tl ->
+                raise @@ at_field "propertyDependencies" @@ at_field n @@ unexpected k "string array"
+              | [] -> List.rev sacc
+            in sets [] l
+          | Some k -> raise @@ at_field "propertyDependencies" @@ unexpected k "object" in
+        let parse_element_assoc field =
+          match opt_field json field with
+          | None -> []
+          | Some (`O props) ->
+            let rec items acc = function
+              | [] -> List.rev acc
+              | (n, elt) :: tl ->
+                let elt = try parse_element source elt with err -> raise @@ at_field field @@ at_field n @@ err in
+                items ((n, elt) :: acc) tl
+            in items [] props
+          | Some k -> raise @@ at_field field @@ unexpected k "object" in
+        let pattern_properties = parse_element_assoc "patternProperties" in
+        let schema_dependencies = parse_element_assoc "schemaDependencies" in
+        let min_properties = match opt_int_field json "minProperties" with None -> 0 | Some l -> l in
+        let max_properties = opt_int_field json "maxProperties" in
+        Object { properties ; pattern_properties ;
+                 additional_properties ;
+                 min_properties ; max_properties ;
+                 schema_dependencies ; property_dependencies }
+      | n -> raise (Cannot_parse ([], Unexpected (n, "a known type"))) in
+  (* parse recursively from the root *)
+  let root = parse_element Uri.empty (json :> value) in
+  (* force the addition of everything inside /definitions *)
+  (match query [ `Field "definitions" ] (json :> value) with
+   | `O all ->
+     let all = List.map (fun (n, _) -> Uri.of_string ("#/definitions/" ^ n)) all in
+     List.iter (fun uri -> collect_definition uri |> ignore) all
+   | _ -> ()
+   | exception  Not_found -> ()) ;
+  (* check the domain of IDs *)
+  List.iter
+    (fun id ->
+       if not (List.mem_assoc id !collected_id_defs) then
+         raise (Cannot_parse ([], Dangling_reference (Uri.(with_fragment empty (Some id))))))
+    !collected_id_refs ;
+  let ids = !collected_id_defs in
+  let source = schema_source in
+  let world = [] in
+  let definitions = !collected_definitions in
+  { root ; definitions ; source ; ids ; world }
 
-(* browe the schema and try to look up every [Def] *)
-let check_definitions { root ; definitions } =
-  try
-    let rec check { kind } = match kind with
-      | Object { properties ; pattern_properties ;
-                 additional_properties ; schema_dependencies } ->
-          List.iter (fun (_, e, _) -> check e) properties ;
-          List.iter (fun (_, e) -> check e) pattern_properties ;
-          List.iter (fun (_, e) -> check e) schema_dependencies ;
-          (match additional_properties with Some e -> check e | None -> ())
-      | Array (es, { additional_items }) ->
-          List.iter check es ;
-          (match additional_items with Some e -> check e | None -> ())
-      | Monomorphic_array (e, { additional_items }) ->
-          check e ;
-          (match additional_items with Some e -> check e | None -> ())
-      | Combine (_, es) ->
-          List.iter check es
-      | Def path ->
-          if not (definition_exists path definitions) then
-            raise Not_found
-      | Ref _ | String _ | Integer | Number | Boolean | Null | Any | Dummy -> ()
-    in check root ; true
-  with Not_found -> false
+(* browse the schema and try to look up every local [Ref] *)
+let check_definitions root definitions =
+  let collected_id_defs = ref [] in
+  let collected_id_refs = ref [] in
+  let rec check ({ kind ; id } as elt) =
+    begin match id with
+    | None -> ()
+    | Some id -> collected_id_defs := (id, elt) :: !collected_id_defs end ;
+    begin match kind with
+    | Object { properties ; pattern_properties ;
+               additional_properties ; schema_dependencies } ->
+      List.iter (fun (_, e, _) -> check e) properties ;
+      List.iter (fun (_, e) -> check e) pattern_properties ;
+      List.iter (fun (_, e) -> check e) schema_dependencies ;
+      (match additional_properties with Some e -> check e | None -> ())
+    | Array (es, { additional_items }) ->
+      List.iter check es ;
+      (match additional_items with Some e -> check e | None -> ())
+    | Monomorphic_array (e, { additional_items }) ->
+      check e ;
+      (match additional_items with Some e -> check e | None -> ())
+    | Combine (_, es) ->
+      List.iter check es
+    | Def_ref path ->
+      if not (definition_exists path definitions) then
+        raise (Dangling_reference (Uri.(with_fragment empty) (Some path)))
+    | Id_ref id ->
+      collected_id_refs := id :: !collected_id_refs ;
+    | Ext_ref _ | String _ | Integer | Number | Boolean | Null | Any | Dummy -> ()
+    end in
+  (* check the root and definitions *)
+  check root ;
+  List.iter (fun (_, root) -> check root) definitions ;
+  (* check the domain of IDs *)
+  List.iter
+    (fun id ->
+       if not (List.mem_assoc id !collected_id_defs) then
+         raise (Dangling_reference (Uri.(with_fragment empty (Some id)))))
+    !collected_id_refs ;
+  !collected_id_defs
+
+
 
 (* box a new root without def *)
 let create root =
-  let result = { root ; definitions = [] } in
-  if not (check_definitions result) then
-    invalid_arg "Json_schema.create" ;
-  result
+  let ids = check_definitions root [] in
+  { root ; definitions = [] ; world = [] ; ids ; source = Uri.empty }
+
+(*  extract the root *)
+let root { root } =
+  root
 
 (* box a root with existing defs *)
-let update root { definitions} =
-  let result = { root ; definitions } in
-  if not (check_definitions result) then
-    invalid_arg "Json_schema.update" ;
-  result
+let update root sch =
+  let ids = check_definitions sch.root sch.definitions in
+  { sch with root ; ids }
 
 (* something to start from *)
 let any =
@@ -583,8 +572,8 @@ let any =
 
 (* external ref to speak about schemas inside other schemas *)
 let self =
-  let version = "http://json-schema.org/draft-04/schema#" in
-  { root = element (Ref version) ; definitions = [] }
+  { root = element (Ext_ref (Uri.of_string version)) ;
+    definitions = [] ; ids = [] ; world = [] ; source = Uri.empty }
 
 (* remove unused definitions from the schema *)
 let simplify schema =
@@ -592,25 +581,25 @@ let simplify schema =
   let rec collect { kind } = match kind with
     | Object { properties ; pattern_properties ;
                additional_properties ; schema_dependencies } ->
-        List.iter (fun (_, e, _) -> collect e) properties ;
-        List.iter (fun (_, e) -> collect e) pattern_properties ;
-        List.iter (fun (_, e) -> collect e) schema_dependencies ;
-        (match additional_properties with Some e -> collect e | None -> ())
+      List.iter (fun (_, e, _) -> collect e) properties ;
+      List.iter (fun (_, e) -> collect e) pattern_properties ;
+      List.iter (fun (_, e) -> collect e) schema_dependencies ;
+      (match additional_properties with Some e -> collect e | None -> ())
     | Array (es, { additional_items }) ->
-        List.iter collect es ;
-        (match additional_items with Some e -> collect e | None -> ())
+      List.iter collect es ;
+      (match additional_items with Some e -> collect e | None -> ())
     | Monomorphic_array (e, { additional_items }) ->
-        collect e ;
-        (match additional_items with Some e -> collect e | None -> ())
+      collect e ;
+      (match additional_items with Some e -> collect e | None -> ())
     | Combine (_, es) ->
-        List.iter collect es
-    | Def path ->
-        let def = find_definition path schema.definitions in
-        res := insert_definition path def !res
-    | Ref _ | String _ | Integer | Number | Boolean | Null | Any | Dummy -> ()
+      List.iter collect es
+    | Def_ref path ->
+      let def = find_definition path schema.definitions in
+      res := insert_definition path def !res
+    | Ext_ref _ | Id_ref _ | String _ | Integer | Number | Boolean | Null | Any | Dummy -> ()
   in
   collect schema.root ;
-  { root = schema.root ; definitions = !res }
+  { schema with definitions = !res }
 
 (* external definition finding *)
 let find_definition path schema =
@@ -622,49 +611,27 @@ let definition_exists path schema =
 
 (* external definition insertion *)
 let add_definition path elt schema =
+  let path = "/definitions/" ^ path in
+  (* check inside def *)
   { schema with definitions = insert_definition path elt schema.definitions },
-  element (Def path)
+  element (Def_ref path)
 
 (* unifies the definitions of two schemas and rewrite them using the
    newly computed set *)
 let merge_definitions (sa, sb) =
-  let rec merge da db =
-    (* we collate the two lists and then sort the result by field name
-       so we can just detect duplicates as pairs of consecutive
-       elements with the same field name ; we assume that the original
-       names do not contain duplicates *)
-    let compare da db = match da, db with
-      | Group (na, _), Group (nb, _)
-      | Group (na, _), Definition (nb, _)
-      | Definition (na, _), Group (nb, _)
-      | Definition (na, _), Definition (nb, _) ->
-          String.compare na nb
-    in
-    let rec sorted_merge = function
-      | (Group (na, la) as a) :: (Group (nb, lb) as b) :: tl ->
-          if na = nb then
-            Group (na, merge la lb) :: sorted_merge tl
-          else
-            a :: sorted_merge (b :: tl)
-      | (Definition (na, da) as a) :: (Definition (nb, db) as b) :: tl ->
-          if na = nb then
-            if da = db || da.kind = Dummy || db.kind = Dummy then
-              Definition (na, da) :: sorted_merge tl
-            else
-              invalid_arg "Json_schema.merge_definitions"
-          else
-            a :: sorted_merge (b :: tl)
-      | (Group (na, _) as a) :: (Definition (nb, _) as b) :: tl
-      | (Definition (na, _) as a) :: (Group (nb, _) as b) :: tl ->
-          if na = nb then
-            invalid_arg "Json_schema.merge_definitions"
-          else
-            a :: sorted_merge (b :: tl)
-      | _ :: [] | [] as last -> last
-    in
-    sorted_merge (List.sort compare (da @ db))
+  let rec sorted_merge = function
+    | ((na, da) as a) :: ((nb, db) as b) :: tl ->
+      if na = nb then
+        if da = db || da.kind = Dummy || db.kind = Dummy then
+          (na, da) :: sorted_merge tl
+        else
+          invalid_arg "Json_schema.merge_definitions"
+      else
+        a :: sorted_merge (b :: tl)
+    | [] | [ _ ] as rem -> rem
   in
-  let definitions = merge sa.definitions sb.definitions in
+  let definitions =
+    sorted_merge (List.sort compare (sa.definitions @ sb.definitions)) in
   { sa with definitions }, { sb with definitions }
 
 (* Combines several schemas *)
@@ -672,8 +639,8 @@ let combine op schemas =
   let rec combine sacc eacc = function
     | [] -> update (element (Combine (op, eacc))) sacc
     | s :: ss ->
-        let sacc, s = merge_definitions (sacc, s) in
-        combine sacc (s.root :: eacc) ss
+      let sacc, s = merge_definitions (sacc, s) in
+      combine sacc (s.root :: eacc) ss
   in combine any [] schemas
 
 (* default specs *)
