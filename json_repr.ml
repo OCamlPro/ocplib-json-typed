@@ -27,32 +27,35 @@ and path_item =
 exception Illegal_pointer_notation of string * int * string
 exception Unsupported_path_item of path_item * string
 
-let print_path_as_json_path ppf = function
+let print_path_as_json_path ?(wildcards = true) ppf = function
   | [] -> Format.fprintf ppf "/"
   | nonempty ->
     let rec print ppf = function
       | [] -> ()
-      | `Field n :: rem  -> Format.fprintf ppf "/%s%a" n print rem
-      | `Index n :: rem  -> Format.fprintf ppf "[%d]%a" n print rem
-      | `Next :: rem  -> Format.fprintf ppf "-%a" print rem
-      | `Star :: rem  -> Format.fprintf ppf "*%a" print rem in
+      | `Field n :: rem -> Format.fprintf ppf "/%s%a" n print rem
+      | `Index n :: rem -> Format.fprintf ppf "[%d]%a" n print rem
+      | `Next :: rem when wildcards -> Format.fprintf ppf "-%a" print rem
+      | `Star :: rem when wildcards -> Format.fprintf ppf "*%a" print rem
+      | (`Next | `Star) :: _ ->
+        raise (Unsupported_path_item (`Star, "JSON path w/o wildcards")) in
     print ppf nonempty
 
-let print_path_as_json_pointer ppf = function
+let print_path_as_json_pointer ?(wildcards = true) ppf = function
   | [] -> Format.fprintf ppf "/"
   | nonempty ->
     let rec print ppf = function
       | [] -> ()
-      | `Field n :: rem  -> Format.fprintf ppf "/%s%a" n print rem
-      | `Index n :: rem  -> Format.fprintf ppf "/%d%a" n print rem
-      | `Next :: rem  -> Format.fprintf ppf "/-%a" print rem
-      | `Star :: _  -> raise (Unsupported_path_item (`Star, "JSON pointer")) in
+      | `Field n :: rem -> Format.fprintf ppf "/%s%a" n print rem
+      | `Index n :: rem -> Format.fprintf ppf "/%d%a" n print rem
+      | `Next :: rem when wildcards -> Format.fprintf ppf "/-%a" print rem
+      | `Next :: _ -> raise (Unsupported_path_item (`Star, "JSON pointer w/o wildcards"))
+      | `Star :: _ -> raise (Unsupported_path_item (`Star, "JSON pointer")) in
     print ppf nonempty
 
-let json_pointer_of_path path =
-  Format.asprintf "%a" print_path_as_json_pointer path
+let json_pointer_of_path ?wildcards path =
+  Format.asprintf "%a" (print_path_as_json_pointer ?wildcards) path
 
-let path_of_json_pointer str =
+let path_of_json_pointer ?(wildcards = true) str =
   let buf = Buffer.create 100 in
   let len = String.length str in
   let rec slashes acc i =
@@ -78,7 +81,11 @@ let path_of_json_pointer str =
   and interp () =
     let field = Buffer.contents buf in
     Buffer.clear buf ;
-    if field = "-" then `Next
+    if field = "-" then
+      if wildcards then
+        `Next
+      else
+        raise (Unsupported_path_item (`Next, "JSON pointer w/o wildcards"))
     else try `Index (int_of_string field) with
       | _ -> `Field field in
   if len = 0 then []
@@ -252,7 +259,7 @@ let rec print_error ?print_unknown ppf err = match err with
   | Cannot_merge path ->
     Format.fprintf ppf
       "Unmergeable objects, incompatibility at %a"
-      print_path_as_json_path path
+      (print_path_as_json_path ~wildcards:true) path
   | exn ->
     match print_unknown with
     | Some print_unknown -> print_unknown ppf exn

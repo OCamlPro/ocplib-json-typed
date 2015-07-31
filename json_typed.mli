@@ -221,7 +221,8 @@ val conv :
 
 (** A fixpoint combinator. Links a recursive OCaml type to an internal
     JSON schema reference, by allowing to use the codec inside its own
-    definition. The first parameter is a name that must be unique to
+    definition. The first parameter is a path, that must be unique and
+    respect the format of {!Json_schema.add_definition}. It is used to
     encode the recursivity as a named reference in the JSON schema.
 
     Here is an example to turn a standard OCaml list into either
@@ -261,7 +262,9 @@ val describe :
   ('t, 'k) codec ->
   ('t, 'k) codec
 
-(** Name a definition so its occurences can be shared in the JSON schema. *)
+(** Name a definition so its occurences can be shared in the JSON
+    schema.  The first parameter is a path, that must be unique and
+    respect the format of {!Json_schema.add_definition}. *)
 val def : string -> ('t, 'k) codec -> ('t, 'k) codec
 
 (** {2 Errors} ****************************************************************)

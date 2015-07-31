@@ -10,7 +10,7 @@ let version = "http://json-schema.org/draft-04/schema#"
 type schema =
   { root : element ;
     source : Uri.t (* whose fragment should be empty *) ;
-    definitions : (string * element) list ;
+    definitions : (path * element) list ;
     ids : (string * element) list ;
     world : schema list }
 
@@ -28,7 +28,7 @@ and element_kind =
   | Array of element list * array_specs
   | Monomorphic_array of element * array_specs
   | Combine of combinator * element list
-  | Def_ref of string
+  | Def_ref of path
   | Id_ref of string
   | Ext_ref of Uri.t
   | String of string_specs
@@ -58,6 +58,12 @@ and string_specs =
     min_length : int ;
     max_length : int option }
 
+exception Duplicate_definition of path
+exception Bad_reference of string
+exception Cannot_parse of path * exn
+exception Dangling_reference of Uri.t
+exception Unexpected of string * string
+
 (* box an element kind without any optional field *)
 let element kind =
   { title = None ; description = None ; default = None ; kind ;
@@ -81,7 +87,7 @@ let insert_definition name elt defs =
     | (_, { kind = Dummy }) :: rem ->
       (name, elt) :: rem
     | (_, defelt) :: rem ->
-      if elt <> defelt then invalid_arg "Json_schema.insert_definition" ;
+      if elt <> defelt then raise (Duplicate_definition name) ;
       (name, elt) :: rem in
   insert defs
 
@@ -113,7 +119,7 @@ let to_json schema =
           set_if_cons "required" required (fun l -> `A l) @
           set_if_cons "patternProperties" specs.pattern_properties
             (fun fs -> `O (List.map (fun (n, elt) -> n, format_element elt) fs)) @
-          set_if_neq "additionalProperties"  specs.additional_properties (Some (element Any))
+          set_if_neq "additionalProperties" specs.additional_properties (Some (element Any))
             (function
               | None -> `Bool false
               | Some elt -> format_element elt) @
@@ -158,8 +164,8 @@ let to_json schema =
             | All_of -> "allOf"
             | Not -> "not" in
           set_always (combinator c) (`A (List.map format_element elts))
-        | Def_ref name ->
-          set_always "$ref" (`String ("#" ^ name))
+        | Def_ref path ->
+          set_always "$ref" (`String ("#" ^ (json_pointer_of_path path)))
         | Id_ref name ->
           set_always "$ref" (`String ("#" ^ name))
         | Ext_ref uri ->
@@ -178,29 +184,24 @@ let to_json schema =
         | Null ->
           `O [ "type", `String "null" ]
         | Dummy ->
-          invalid_arg "Json_schema.to_json"
+          invalid_arg "Json_schema.to_json: remaining dummy element"
         | Any -> `O [] end @
       set_if_some "default" default  (fun j -> j) @
       set_if_some "enum" enum (fun js -> `A js) @
       set_if_some "format" format (fun s -> `String s) in
   let json =
-    List.fold_left (fun acc (n, elt) ->
-        insert (path_of_json_pointer n) (format_element elt) acc)
+    List.fold_left
+      (fun acc (n, elt) -> insert n (format_element elt) acc)
       (set_always "$schema" (`String version) @ format_element schema.root)
       schema.definitions in
   match json with `O _ as json -> json | _ -> assert false (* absurd *)
 
 (* JSON encoding -> OCaml definition *)
-exception Cannot_parse of path * exn
-exception Dangling_reference of Uri.t
-exception Bad_reference of string
-exception Unexpected of string * string
-
 let rec print_error ?print_unknown ppf = function
   | Cannot_parse (path, exn) ->
     Format.fprintf ppf
       "@[<v 2>Schema parse error:@,At %a@,%a@]"
-      Json_repr.print_path_as_json_path path
+      (Json_repr.print_path_as_json_path ~wildcards:true) path
       (print_error ?print_unknown) exn
   | Dangling_reference uri ->
     Format.fprintf ppf
@@ -275,17 +276,20 @@ let of_json json =
       collected_id_refs := fragment :: !collected_id_refs ;
       Id_ref fragment
     | None, Some fragment ->
-      let path = try path_of_json_pointer fragment with err -> raise (Cannot_parse ([], err)) in
+      let path =
+        try path_of_json_pointer ~wildcards:false fragment
+        with err -> raise (Cannot_parse ([], err)) in
       try
         let raw = query path json in
-        if not (definition_exists fragment !collected_definitions) then begin
+        if not (definition_exists path !collected_definitions) then begin
           (* dummy insertion so we don't recurse and we support cycles *)
-          collected_definitions := insert_definition fragment (element Dummy) !collected_definitions ;
-          let elt = try parse_element schema_source raw with err -> raise @@ at_path path @@ err in
+          collected_definitions := insert_definition path (element Dummy) !collected_definitions ;
+          let elt = try parse_element schema_source raw
+            with err -> raise @@ at_path path @@ err in
           (* actual insertion *)
-          collected_definitions := insert_definition fragment elt !collected_definitions
+          collected_definitions := insert_definition path elt !collected_definitions
         end ;
-        Def_ref fragment
+        Def_ref path
       with Not_found -> raise (Cannot_parse ([], Dangling_reference uri))
   (* recursive parser *)
   and parse_element : Uri.t -> value -> element = fun source json ->
@@ -449,7 +453,8 @@ let of_json json =
           | Some (`Bool false)-> None
           | None | Some (`Bool true)-> Some (element Any)
           | Some elt ->
-            let elt = try parse_element source elt with err -> raise @@ at_field "additionalProperties" err in
+            let elt = try parse_element source elt
+              with err -> raise (at_field "additionalProperties" err) in
             Some elt in
         let property_dependencies =
           match opt_field json "propertyDependencies" with
@@ -461,13 +466,20 @@ let of_json json =
                   | [] -> sets ((n, List.rev acc) :: sacc) tl
                   | `String s :: tl -> strings (succ j) (s :: acc) tl
                   | k :: _ ->
-                    raise @@ at_field "propertyDependencies" @@ at_field n @@ at_index j @@ unexpected k "string"
+                    raise (at_field "propertyDependencies" @@
+                           at_field n @@
+                           at_index j @@
+                           unexpected k "string")
                 in strings 0 [] l
               | (n, k) :: tl ->
-                raise @@ at_field "propertyDependencies" @@ at_field n @@ unexpected k "string array"
+                raise (at_field "propertyDependencies" @@
+                       at_field n @@
+                       unexpected k "string array")
               | [] -> List.rev sacc
             in sets [] l
-          | Some k -> raise @@ at_field "propertyDependencies" @@ unexpected k "object" in
+          | Some k ->
+            raise (at_field "propertyDependencies" @@
+                   unexpected k "object") in
         let parse_element_assoc field =
           match opt_field json field with
           | None -> []
@@ -475,13 +487,18 @@ let of_json json =
             let rec items acc = function
               | [] -> List.rev acc
               | (n, elt) :: tl ->
-                let elt = try parse_element source elt with err -> raise @@ at_field field @@ at_field n @@ err in
+                let elt = try parse_element source elt
+                  with err -> raise (at_field field @@
+                                     at_field n err) in
                 items ((n, elt) :: acc) tl
             in items [] props
-          | Some k -> raise @@ at_field field @@ unexpected k "object" in
+          | Some k -> raise (at_field field @@ unexpected k "object") in
         let pattern_properties = parse_element_assoc "patternProperties" in
         let schema_dependencies = parse_element_assoc "schemaDependencies" in
-        let min_properties = match opt_int_field json "minProperties" with None -> 0 | Some l -> l in
+        let min_properties =
+          match opt_int_field json "minProperties" with
+          | None -> 0
+          | Some l -> l in
         let max_properties = opt_int_field json "maxProperties" in
         Object { properties ; pattern_properties ;
                  additional_properties ;
@@ -534,6 +551,7 @@ let check_definitions root definitions =
       List.iter check es
     | Def_ref path ->
       if not (definition_exists path definitions) then
+        let path = json_pointer_of_path path in
         raise (Dangling_reference (Uri.(with_fragment empty) (Some path)))
     | Id_ref id ->
       collected_id_refs := id :: !collected_id_refs ;
@@ -601,20 +619,29 @@ let simplify schema =
   collect schema.root ;
   { schema with definitions = !res }
 
+let definition_path_of_name name =
+  path_of_json_pointer ~wildcards:false @@
+  match String.get name 0 with
+    | exception _ -> raise (Bad_reference name)
+    | '/' -> name
+    | _ -> "/definitions/" ^ name
+
 (* external definition finding *)
-let find_definition path schema =
+let find_definition name schema =
+  let path = definition_path_of_name name in
   find_definition path schema.definitions
 
 (* external definition existence test *)
-let definition_exists path schema =
+let definition_exists name schema =
+  let path = definition_path_of_name name in
   definition_exists path schema.definitions
 
 (* external definition insertion *)
-let add_definition path elt schema =
-  let path = "/definitions/" ^ path in
+let add_definition name elt schema =
+  let path = definition_path_of_name name in
   (* check inside def *)
-  { schema with definitions = insert_definition path elt schema.definitions },
-  element (Def_ref path)
+  let definitions = insert_definition path elt schema.definitions in
+  { schema with definitions }, element (Def_ref path)
 
 (* unifies the definitions of two schemas and rewrite them using the
    newly computed set *)
@@ -622,10 +649,10 @@ let merge_definitions (sa, sb) =
   let rec sorted_merge = function
     | ((na, da) as a) :: ((nb, db) as b) :: tl ->
       if na = nb then
-        if da = db || da.kind = Dummy || db.kind = Dummy then
+        if da.kind = Dummy || db.kind = Dummy || da = db then
           (na, da) :: sorted_merge tl
         else
-          invalid_arg "Json_schema.merge_definitions"
+          raise (Duplicate_definition na)
       else
         a :: sorted_merge (b :: tl)
     | [] | [ _ ] as rem -> rem

@@ -43,21 +43,29 @@ and path_item =
   | `Next
   (** The next element after an array. *) ]
 
-(** Pretty prints a path in JSON pointer format (RFC6901).
-    May throw {!Unsupported_path_item}. *)
-val print_path_as_json_pointer : Format.formatter -> path -> unit
+(** Pretty prints a path in JSON pointer format (RFC6901).  May throw
+    {!Unsupported_path_item}. Use [~wildcards:false] to deactivate the
+    support of wildcard path items, which may lead to
+    {!Unsupported_path_item}. *)
+val print_path_as_json_pointer : ?wildcards: bool -> Format.formatter -> path -> unit
 
-(** Pretty prints a path in JSON path format. *)
-val print_path_as_json_path : Format.formatter -> path -> unit
+(** Pretty prints a path in JSON path format. Use [~wildcards:false] to
+    deactivate the support of wildcard path items, which may lead to
+    {!Unsupported_path_item}. *)
+val print_path_as_json_path : ?wildcards: bool -> Format.formatter -> path -> unit
 
 (** Pretty prints a path in JSON pointer format into a fresh string.
-    May throw {!Unsupported_path_item}. *)
-val json_pointer_of_path : path -> string
+    May throw {!Unsupported_path_item}. Use [~wildcards:false] to
+    deactivate the support of wildcard path items, which may lead to
+    {!Unsupported_path_item}. *)
+val json_pointer_of_path : ?wildcards: bool -> path -> string
 
-(** Parses a path from a string in JSON pointer format.
-    May throw {!Illegal_pointer_notation!}.
-    The string is expected to be ASCII compatible, including UTF-8. *)
-val path_of_json_pointer : string -> path
+(** Parses a path from a string in JSON pointer format.  May throw
+    {!Illegal_pointer_notation}. The string is expected to be ASCII
+    compatible, including UTF-8. Use [~wildcards:false] to deactivate
+    the support of wildcard path items, which may lead to
+    {!Unsupported_path_item}. *)
+val path_of_json_pointer : ?wildcards: bool -> string -> path
 
 (** {2 Querying JSON documents} ***********************************************)
 

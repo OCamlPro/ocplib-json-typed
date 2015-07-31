@@ -1,9 +1,13 @@
-
 let to_channel chan json =
   Ezjsonm.to_channel ~minify:false chan (json :> Ezjsonm.t) ;
   Printf.fprintf stdout "\n%!"
 
-let () =
+let register_test, all_tests =
+  let tests = ref [] in
+  (fun name callback -> tests := (name, callback) :: !tests),
+  (fun () -> !tests)
+
+let () = register_test "recursion" @@ fun () ->
   let open Json_typed in
   let input_f itemcodec =
     obj1 (req "contents" @@
@@ -36,8 +40,7 @@ let () =
       main () in
   main ()
 
-(*
-let () =
+let () = register_test "simple" @@ fun () ->
   let open Json_typed in
   let input_f =
     (obj1
@@ -61,12 +64,28 @@ let () =
       let v = destruct input_f json in
       let json = construct output_f v in
       to_channel stdout json
-    with
-    | Cannot_destruct err ->
-      Format.eprintf "%a@." print_error err ;
-      main ()
-    | Ezjsonm.Parse_error (_, err) ->
-      Format.eprintf "%s@." err ;
+    with err ->
+      let print_unknown ppf = function
+        | Ezjsonm.Parse_error (_, err) ->
+          Format.fprintf ppf "%s" err
+        | exn -> raise exn in
+      Format.eprintf "%a@." (print_error ~print_unknown) err ;
       main () in
   main ()
-*)
+
+let () =
+  try
+    match Sys.argv with
+    | [| _ ; "all" |] ->
+      List.iter (fun (n, f) ->
+          Format.printf "Running %s@." n ; f ())
+        (all_tests ())
+    | [| _ ; n |] ->
+      List.assoc n (all_tests ()) ()
+    | _ -> raise Not_found
+  with Not_found ->
+    Format.eprintf "@[<v 2>Usage:@,%s all" Sys.argv.(0) ;
+    List.iter (fun (n, _) ->
+        Format.eprintf "@,%s %s" Sys.argv.(0) n)
+      (all_tests ()) ;
+    Format.eprintf "@."

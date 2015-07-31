@@ -14,32 +14,32 @@ let rec print_error ?print_unknown ppf = function
   | Cannot_destruct (path, Unexpected (unex, ex)) ->
     Format.fprintf ppf
       "At %a, unexpected %s instead of %s"
-      Json_repr.print_path_as_json_path path
+      (print_path_as_json_path ~wildcards:true) path
       unex ex
   | Cannot_destruct (path, No_case_matched errs) ->
     Format.fprintf ppf
       "@[<v 2>At %a, no case matched:@,%a@]"
-      Json_repr.print_path_as_json_path path
+      (print_path_as_json_path ~wildcards:true) path
       (Format.pp_print_list (print_error ?print_unknown)) errs
   | Cannot_destruct (path, Bad_array_size (unex, ex)) ->
     Format.fprintf ppf
       "At %a, unexpected array of size %d instead of %d"
-      Json_repr.print_path_as_json_path path
+      (print_path_as_json_path ~wildcards:true) path
       unex ex
   | Cannot_destruct (path, Missing_field n) ->
     Format.fprintf ppf
       "At %a, missing object field %s"
-      Json_repr.print_path_as_json_path path
+      (print_path_as_json_path ~wildcards:true) path
       n
   | Cannot_destruct (path, Unexpected_field n) ->
     Format.fprintf ppf
       "At %a, unexpected object field %s"
-      Json_repr.print_path_as_json_path path
+      (print_path_as_json_path ~wildcards:true) path
       n
   | Cannot_destruct (path, Bad_schema exn) ->
     Format.fprintf ppf
       "@[<v 2>At %a, bad custom schema:@,%a@]"
-      Json_repr.print_path_as_json_path path
+      (print_path_as_json_path ~wildcards:true) path
       (print_error ?print_unknown) exn
   | Unexpected (unex, ex) ->
     Format.fprintf ppf
@@ -64,7 +64,7 @@ let rec print_error ?print_unknown ppf = function
   | Cannot_destruct (path, exn) ->
     Format.fprintf ppf
       "@[<v 2>At %a:@,%a@]"
-      print_path_as_json_pointer path
+      (print_path_as_json_path ~wildcards:true) path
       (print_error ?print_unknown) exn
   | exn ->
     Json_schema.print_error ?print_unknown ppf exn
