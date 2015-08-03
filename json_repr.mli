@@ -1,15 +1,34 @@
 (** Representations of JSON documents *)
 
-(** {2 In memory JSON document representation} ********************************)
+(************************************************************************)
+(*  ocplib-json-typed-utils                                             *)
+(*                                                                      *)
+(*    Copyright 2014 OCamlPro                                           *)
+(*                                                                      *)
+(*  This file is distributed under the terms of the GNU Lesser General  *)
+(*  Public License as published by the Free Software Foundation; either *)
+(*  version 2.1 of the License, or (at your option) any later version,  *)
+(*  with the OCaml static compilation exception.                        *)
+(*                                                                      *)
+(*  ocp-read is distributed in the hope that it will be useful,         *)
+(*  but WITHOUT ANY WARRANTY; without even the implied warranty of      *)
+(*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the       *)
+(*  GNU General Public License for more details.                        *)
+(*                                                                      *)
+(************************************************************************)
 
-(** A JSON document, that cannot be an immediate. *)
+(** {2 In memory JSON document representation} *) (****************************)
+
+(** A JSON document, that cannot be an immediate.
+    This type is compatible with {!Ezjsonm.t}. *)
 type document =
   [ `O of (string * value) list
     (** An object [{ "name": value, ...  }], with UTF-8 encoded names. *)
   | `A of value list
     (** An array [[ value, ... ]] .*) ]
 
-(** A non toplevel JSON value, structure or immediate. *)
+(** A non toplevel JSON value, structure or immediate.
+    This type is compatible with {!Ezjsonm.value}. *)
 and value =
   [ `O of (string * value) list
     (** Cf. {!document}. *)
@@ -24,7 +43,7 @@ and value =
   | `Null
     (** The [null] constant. *) ]
 
-(** {2 Paths in JSON documents} ***********************************************)
+(** {2 Paths in JSON documents} *) (*******************************************)
 
 (** An abstract type for paths into a JSON document.
     A sequence of sub-tree selectors to descend into a JSON tree. *)
@@ -67,7 +86,7 @@ val json_pointer_of_path : ?wildcards: bool -> path -> string
     {!Unsupported_path_item}. *)
 val path_of_json_pointer : ?wildcards: bool -> string -> path
 
-(** {2 Querying JSON documents} ***********************************************)
+(** {2 Querying JSON documents} *) (*******************************************)
 
 (** Extracts the value located at a given path. If multiple locations
     satisfy the path (in presence of wildcard path items), the chosen
@@ -106,7 +125,7 @@ val replace : path -> [< value ] -> [< value ] -> value
     {!Cannot_merge}. *)
 val merge : [< value ] -> [< value ] -> value
 
-(** {2 Errors} ****************************************************************)
+(** {2 Errors} *) (************************************************************)
 
 (** When two incompatible objects are unsuccessfully merged. Comes
     with the path to the first incompatibility encountered.*)

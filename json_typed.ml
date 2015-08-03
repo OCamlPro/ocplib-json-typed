@@ -1,4 +1,25 @@
+(* JSON structure description using dependently typed combinators. *)
+
+(************************************************************************)
+(*  ocplib-json-typed-utils                                             *)
+(*                                                                      *)
+(*    Copyright 2014 OCamlPro                                           *)
+(*                                                                      *)
+(*  This file is distributed under the terms of the GNU Lesser General  *)
+(*  Public License as published by the Free Software Foundation; either *)
+(*  version 2.1 of the License, or (at your option) any later version,  *)
+(*  with the OCaml static compilation exception.                        *)
+(*                                                                      *)
+(*  ocp-read is distributed in the hope that it will be useful,         *)
+(*  but WITHOUT ANY WARRANTY; without even the implied warranty of      *)
+(*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the       *)
+(*  GNU General Public License for more details.                        *)
+(*                                                                      *)
+(************************************************************************)
+
 open Json_repr
+
+(*-- types and errors --------------------------------------------------------*)
 
 exception Unexpected of string * string
 exception No_case_matched of exn list
@@ -7,6 +28,55 @@ exception Missing_field of string
 exception Unexpected_field of string
 exception Bad_schema of exn
 exception Cannot_destruct of (path * exn)
+
+let unexpected kind expected =
+  let kind =match kind with
+    | `O [] -> "empty object"
+    | `A [] -> "empty array"
+    | `O _ -> "object"
+    | `A _ -> "array"
+    | `Null -> "null"
+    | `String _ -> "string"
+    | `Float _ -> "number"
+    | `Bool _ -> "boolean" in
+  Cannot_destruct ([], Unexpected (kind, expected))
+
+(* intermediate internal type without the polymorphic variant constraint *)
+type (_, 'k) ucodec =
+  | Null : (unit, [ `Null ]) ucodec
+  | Int : (int, [ `Float of float ]) ucodec
+  | Bool : (bool, [ `Bool of bool ]) ucodec
+  | String : (string, [ `String of string ]) ucodec
+  | Float : (float, [ `Float of float ]) ucodec
+  | Array : ('a, [< value ]) ucodec -> ('a array, [ `A of value list ]) ucodec
+  | Obj : 'a field -> ('a, [ `O of (string * value) list ]) ucodec
+  | Objs :
+      ('a, [ `O of (string * value) list ]) ucodec *
+      ('b, [ `O of (string * value) list ]) ucodec ->
+    ('a * 'b, [ `O of (string * value) list ]) ucodec
+  | Tup : ('a, [< value ]) ucodec -> ('a, [ `A of value list ]) ucodec
+  | Tups :
+      ('a, [ `A of value list ]) ucodec *
+      ('b, [ `A of value list ]) ucodec ->
+    ('a * 'b, [ `A of value list ]) ucodec
+  | Custom : 'k witness * ('t -> 'k) * (value -> 't) * Json_schema.schema -> ('t, 'k) ucodec
+  | Conv : ('a -> 'b) * ('b -> 'a) * ('b, 'k) ucodec -> ('a, 'k) ucodec
+  | Describe : string option * string option * ('a, 'k) ucodec -> ('a, 'k) ucodec
+  | Mu : string * (('a, 'k) ucodec -> ('a, 'k) ucodec) -> ('a, 'k) ucodec
+
+and _ field =
+  | Req : string * ('a, [< value ]) ucodec -> 'a field
+  | Opt : string * ('a, [< value ]) ucodec -> 'a option field
+
+(* used to make the type of custom codecs more specific, especially
+   when wrapping another codec *)
+and _ witness =
+  | Document_witness : document witness
+  | Value_witness : value witness
+  | Obj_witness : [ `O of (string * value) list ] witness
+  | Custom_witness : (_, 'k) ucodec -> 'k witness
+
+type ('a, 'b) codec = ('a, 'b) ucodec constraint 'b = [< value]
 
 let rec print_error ?print_unknown ppf = function
   | Cannot_destruct ([], exn) ->
@@ -69,54 +139,7 @@ let rec print_error ?print_unknown ppf = function
   | exn ->
     Json_schema.print_error ?print_unknown ppf exn
 
-let unexpected kind expected =
-  let kind =match kind with
-    | `O [] -> "empty object"
-    | `A [] -> "empty array"
-    | `O _ -> "object"
-    | `A _ -> "array"
-    | `Null -> "null"
-    | `String _ -> "string"
-    | `Float _ -> "number"
-    | `Bool _ -> "boolean" in
-  Cannot_destruct ([], Unexpected (kind, expected))
-
-type (_, 'k) ucodec =
-  | Null : (unit, [ `Null ]) ucodec
-  | Int : (int, [ `Float of float ]) ucodec
-  | Bool : (bool, [ `Bool of bool ]) ucodec
-  | String : (string, [ `String of string ]) ucodec
-  | Float : (float, [ `Float of float ]) ucodec
-  | Array : ('a, [< value ]) ucodec -> ('a array, [ `A of value list ]) ucodec
-  | Obj : 'a field -> ('a, [ `O of (string * value) list ]) ucodec
-  | Objs :
-      ('a, [ `O of (string * value) list ]) ucodec *
-      ('b, [ `O of (string * value) list ]) ucodec ->
-    ('a * 'b, [ `O of (string * value) list ]) ucodec
-  | Tup : ('a, [< value ]) ucodec -> ('a, [ `A of value list ]) ucodec
-  | Tups :
-      ('a, [ `A of value list ]) ucodec *
-      ('b, [ `A of value list ]) ucodec ->
-    ('a * 'b, [ `A of value list ]) ucodec
-  | Custom : 'k witness * ('t -> 'k) * (value -> 't) * Json_schema.schema -> ('t, 'k) ucodec
-  | Conv : ('a -> 'b) * ('b -> 'a) * ('b, 'k) ucodec -> ('a, 'k) ucodec
-  | Describe : string option * string option * ('a, 'k) ucodec -> ('a, 'k) ucodec
-  | Mu : string * (('a, 'k) ucodec -> ('a, 'k) ucodec) -> ('a, 'k) ucodec
-
-and _ field =
-  | Req : string * ('a, [< value ]) ucodec -> 'a field
-  | Opt : string * ('a, [< value ]) ucodec -> 'a option field
-
-and _ witness =
-  | Document_witness : document witness
-  | Value_witness : value witness
-  | Obj_witness : [ `O of (string * value) list ] witness
-  | Tup_witness : [ `A of value list ] witness
-  | Custom_witness : (_, 'k) ucodec -> 'k witness
-
-let x = Array Int
-
-type ('a, 'b) codec = ('a, 'b) ucodec constraint 'b = [< value]
+(*-- construct / destruct / schema over the nain GADT forms ------------------*)
 
 let rec construct
   : type t k. (t, k) ucodec -> (t -> k)
@@ -232,14 +255,14 @@ let schema codec =
   let open Json_schema in
   let sch = ref any in
   let rec object_schema
-    : type t k. (t, [ `O of (string * value) list ]) ucodec -> (string * element * bool) list
+    : type t. (t, [ `O of (string * value) list ]) ucodec -> (string * element * bool) list
     = function
     | Obj (Req (n, t)) -> [ n, schema t, true ]
     | Obj (Opt (n, t)) -> [ n, schema t, false ]
     | Objs (o1, o2) -> object_schema o1 @ object_schema o2
     | _ -> invalid_arg "Json_typed.schema: invalid argument to merge_objs"
   and array_schema
-    : type t k. (t, [ `A of value list ]) ucodec -> element list
+    : type t. (t, [ `A of value list ]) ucodec -> element list
     = function
     | Tup t -> [ schema t ]
     | Tups (t1, t2) -> array_schema t1 @ array_schema t2
@@ -276,6 +299,8 @@ let schema codec =
       | Tup _ as t -> element (Array (array_schema t, array_specs))
       | Tups _ as t -> element (Array (array_schema t, array_specs)) in
   update (schema codec) !sch
+
+(*-- utility wrappers over the GADT ------------------------------------------*)
 
 let req n t = Req (n, t)
 let opt n t = Opt (n, t)
@@ -342,7 +367,6 @@ let tup6 f1 f2 f3 f4 f5 f6 =
      Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, Tup f6))))))
 
 let custom w r ~schema = Custom (Value_witness, w, r, schema)
-let any = custom (fun value -> value) (fun value -> (value :> value)) Json_schema.any
 let describe ?title ?description t = Describe (title, description, t)
 let string_enum cases =
   let specs = Json_schema.({ pattern = None ; min_length = 0 ; max_length = None }) in
@@ -374,7 +398,7 @@ let def name ucodec =
       let sch, def = add_definition name (root sch) sch in
       update def sch))
 
-let option : type t k. (t, [< value ]) ucodec -> (t option, value) ucodec = fun t ->
+let option : type t. (t, [< value ]) ucodec -> (t option, value) ucodec = fun t ->
   Custom
     (Value_witness,
      (function None -> `Null | Some v -> (construct t v :> value)),

@@ -1,8 +1,25 @@
 (** JSON structure description using dependently typed combinators. *)
 
+(************************************************************************)
+(*  ocplib-json-typed-utils                                             *)
+(*                                                                      *)
+(*    Copyright 2014 OCamlPro                                           *)
+(*                                                                      *)
+(*  This file is distributed under the terms of the GNU Lesser General  *)
+(*  Public License as published by the Free Software Foundation; either *)
+(*  version 2.1 of the License, or (at your option) any later version,  *)
+(*  with the OCaml static compilation exception.                        *)
+(*                                                                      *)
+(*  ocp-read is distributed in the hope that it will be useful,         *)
+(*  but WITHOUT ANY WARRANTY; without even the implied warranty of      *)
+(*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the       *)
+(*  GNU General Public License for more details.                        *)
+(*                                                                      *)
+(************************************************************************)
+
 open Json_repr
 
-(** {2 Dependent types describing JSON document structures} *******************)
+(** {2 Dependent types describing JSON document structures} *) (***************)
 
 (** A codec between an OCaml data type (the first parameter) and a JSON
     representation. The second parameter is to mark [codec]s that
@@ -16,7 +33,7 @@ val construct : ('t, [< value ] as 'k) codec -> 't -> 'k
     May raise [Cannot_destruct]. *)
 val destruct : ('t, [< value ]) codec -> [< value ] -> 't
 
-(** {2 JSON type combinators for simple immediates} ***************************)
+(** {2 JSON type combinators for simple immediates} *) (***********************)
 
 (** A codec between an OCaml unit and any (ignored) JSON. *)
 val unit : (unit, value) codec
@@ -51,7 +68,7 @@ val float : (float, [ `Float of float ]) codec
 (** A codec between an OCaml option and a nullable JSON value. *)
 val option : ('a, [< value ]) codec -> ('a option, value ) codec
 
-(** {2 JSON type combinators for objects} *************************************)
+(** {2 JSON type combinators for objects} *) (*********************************)
 
 (** A first class handle to a JSON field. *)
 type 'a field
@@ -115,7 +132,7 @@ val merge_objs :
   ('o2, [ `O of (string * value) list ]) codec ->
   ('o1 * 'o2, [ `O of (string * value) list ]) codec
 
-(** {2 JSON type combinators for arrays} **************************************)
+(** {2 JSON type combinators for arrays} *) (**********************************)
 
 (** A higher order codec between an OCaml array and a JSON one. *)
 val array :
@@ -183,7 +200,7 @@ val merge_tups :
   ('a2, [ `A of value list ]) codec ->
   ('a1 * 'a2, [ `A of value list ]) codec
 
-(** {2 JSON type combinators for unions} **************************************)
+(** {2 JSON type combinators for unions} *) (**********************************)
 
 (** A case for describing union types using {!union} ans {!case}. *)
 type 't case
@@ -197,7 +214,7 @@ val case : ('a, _) codec -> ('t -> 'a option) -> ('a -> 't) -> 't case
 (** A utility to build destructors for custom encoded sum types. *)
 val union : 't case list -> ('t, value) codec
 
-(** {2 JSON generic type combinators} *****************************************)
+(** {2 JSON generic type combinators} *) (*************************************)
 
 (** A codec between a custom OCaml type and a JSON representation,
     given both custom conversion functions and a JSON schema description.
@@ -248,7 +265,7 @@ val any_document : (document, document) codec
 (** The codec of a JSON schema, linked to its OCaml definiton. *)
 val any_schema : (Json_schema.schema, value) codec
 
-(** {2 Exporting [codec]s as JSON schemas} ************************************)
+(** {2 Exporting [codec]s as JSON schemas} *) (********************************)
 
 (** Describe a codec encoding in JSON schema format, may raise
     [Invalid_argument "codecd.schema"] if a bad [custom] schema
@@ -267,7 +284,7 @@ val describe :
     respect the format of {!Json_schema.add_definition}. *)
 val def : string -> ('t, 'k) codec -> ('t, 'k) codec
 
-(** {2 Errors} ****************************************************************)
+(** {2 Errors} *) (************************************************************)
 
 (** Exception raised by destructors, with the location in the original
     JSON structure and the specific error. *)

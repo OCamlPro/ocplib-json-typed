@@ -1,9 +1,30 @@
+(* Abstract representation of JSON schemas. *)
+
+(************************************************************************)
+(*  ocplib-json-typed-utils                                             *)
+(*                                                                      *)
+(*    Copyright 2014 OCamlPro                                           *)
+(*                                                                      *)
+(*  This file is distributed under the terms of the GNU Lesser General  *)
+(*  Public License as published by the Free Software Foundation; either *)
+(*  version 2.1 of the License, or (at your option) any later version,  *)
+(*  with the OCaml static compilation exception.                        *)
+(*                                                                      *)
+(*  ocp-read is distributed in the hope that it will be useful,         *)
+(*  but WITHOUT ANY WARRANTY; without even the implied warranty of      *)
+(*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the       *)
+(*  GNU General Public License for more details.                        *)
+(*                                                                      *)
+(************************************************************************)
+
 (* TODO: validator *)
 
 open Json_repr
 
 (* The currently handled version *)
 let version = "http://json-schema.org/draft-04/schema#"
+
+(*-- types and errors --------------------------------------------------------*)
 
 (* The root of a schema with the named definitions,
    a precomputed ID-element map and a cache for external documents. *)
@@ -69,15 +90,14 @@ let element kind =
   { title = None ; description = None ; default = None ; kind ;
     format = None ; enum = None ; id = None }
 
-(* internal definition finding *)
+(*-- internal definition table handling --------------------------------------*)
+
 let find_definition name defs =
   List.assoc name defs
 
-(* internal definition existence test *)
 let definition_exists name defs =
   List.mem_assoc name defs
 
-(* internal definition insertion *)
 let insert_definition name elt defs =
   let rec insert = function
     | [] ->
@@ -91,7 +111,8 @@ let insert_definition name elt defs =
       (name, elt) :: rem in
   insert defs
 
-(* OCaml definition -> JSON encoding *)
+(*-- printer -----------------------------------------------------------------*)
+
 let to_json schema =
   (* functional JSON building combinators *)
   let (@) (`O l1) (`O  l2) = `O (l1 @ l2) in
@@ -196,7 +217,6 @@ let to_json schema =
       schema.definitions in
   match json with `O _ as json -> json | _ -> assert false (* absurd *)
 
-(* JSON encoding -> OCaml definition *)
 let rec print_error ?print_unknown ppf = function
   | Cannot_parse (path, exn) ->
     Format.fprintf ppf
@@ -228,6 +248,8 @@ let unexpected kind expected =
     | `Bool _ -> "boolean" in
   Cannot_parse ([], Unexpected (kind, expected))
 
+(*-- parser ------------------------------------------------------------------*)
+
 let at_path p = function Cannot_parse (l, err) -> Cannot_parse (p @ l, err) | exn -> exn
 let at_field n = at_path [ `Field n ]
 let at_index i = at_path [ `Index i ]
@@ -239,25 +261,25 @@ let of_json json =
     | _ -> None in
   let opt_string_field obj n = match opt_field obj n with
     | Some (`String s) -> Some s
-    | Some k -> raise @@ at_field n @@ unexpected k "string"
+    | Some k -> raise (at_field n @@ unexpected k "string")
     | None -> None in
   let opt_bool_field def obj n = match opt_field obj n with
     | Some (`Bool b) -> b
-    | Some k -> raise @@ at_field n @@ unexpected k "bool"
+    | Some k -> raise (at_field n @@ unexpected k "bool")
     | None -> def in
   let opt_int_field obj n = match opt_field obj n with
     | Some (`Float f) when floor f = f -> Some (int_of_float f)
-    | Some k -> raise @@ at_field n @@ unexpected k "integer"
+    | Some k -> raise (at_field n @@ unexpected k "integer")
     | None -> None in
   let opt_array_field obj n = match opt_field obj n with
     | Some (`A s) -> Some s
-    | Some k -> raise @@ at_field n @@ unexpected k "array"
+    | Some k -> raise (at_field n @@ unexpected k "array")
     | None -> None in
   let opt_uri_field obj n = match opt_string_field obj n with
     | None -> None
     | Some uri ->
       match Uri.canonicalize (Uri.of_string uri) with
-      | exception exn -> raise (Cannot_parse ([], Bad_reference (uri ^ " is not a valid URI")))
+      | exception _ -> raise (Cannot_parse ([], Bad_reference (uri ^ " is not a valid URI")))
       | uri -> Some uri in
   (* local resolution of definitions *)
   let schema_source = match opt_uri_field json "id" with
@@ -285,7 +307,7 @@ let of_json json =
           (* dummy insertion so we don't recurse and we support cycles *)
           collected_definitions := insert_definition path (element Dummy) !collected_definitions ;
           let elt = try parse_element schema_source raw
-            with err -> raise @@ at_path path @@ err in
+            with err -> raise (at_path path err) in
           (* actual insertion *)
           collected_definitions := insert_definition path elt !collected_definitions
         end ;
@@ -316,7 +338,7 @@ let of_json json =
         | Some (`String name) ->
           Some (element (parse_element_kind source json name))
         | Some (`A [] as k) ->
-          raise @@ at_field "type" @@ unexpected k "type, type array or operator"
+          raise (at_field "type" @@ unexpected k "type, type array or operator")
         | Some (`A l) ->
           let rec items i acc = function
             | [] ->
@@ -327,10 +349,10 @@ let of_json json =
               let case = element kind in
               items (succ i) (case :: acc) tl
             | k :: tl ->
-              raise @@ at_field "type" @@ at_index i @@ unexpected k "type"
+              raise (at_field "type" @@ at_index i @@ unexpected k "type")
           in items 0 [] l
         | Some k ->
-          raise @@ at_field "type" @@ unexpected k "type, type array or operator"
+          raise (at_field "type" @@ unexpected k "type, type array or operator")
         | None -> None in
       (* 2. A reference *)
       let as_ref =
@@ -351,19 +373,21 @@ let of_json json =
         | Some (`A (_ :: _ as cases)) (* list of schemas *) ->
           let rec items i acc = function
             | elt :: tl ->
-              let elt = try parse_element source elt with err -> raise @@ at_field name @@ at_index i @@ err in
+              let elt = try parse_element source elt
+                with err -> raise (at_field name @@ at_index i @@ err) in
               items (succ i) (elt :: acc) tl
             | [] ->
               build (others @ List.rev acc)
           in items 0 [] cases
         | None -> build others
-        | Some k -> raise @@ at_field name @@ unexpected k "a list of elements" in
+        | Some k -> raise (at_field name @@ unexpected k "a list of elements") in
       (* 4. Negated schema *)
       let rec as_not =
         match opt_field json "not" with
         | None -> None
         | Some elt ->
-          let elt = try parse_element source elt with err -> raise @@ at_field "not" err in
+          let elt = try parse_element source elt
+            with err -> raise (at_field "not" err) in
           let kind = Combine (Not, [ elt ]) in
           Some (element kind) in
       (* parse optional fields *)
@@ -410,7 +434,8 @@ let of_json json =
           | Some (`Bool false) ->
             { min_items ; max_items ; unique_items ; additional_items = None }
           | Some elt ->
-            let elt = try parse_element source elt with err -> raise @@ at_field "additionalItems" err in
+            let elt = try parse_element source elt
+              with err -> raise (at_field "additionalItems" err) in
             { min_items ; max_items ; unique_items ; additional_items = Some elt } in
         begin match opt_field json "items" with
           | Some (`A elts) ->
@@ -418,11 +443,13 @@ let of_json json =
               | [] ->
                 Array (List.rev acc, specs)
               | elt :: tl ->
-                let elt = try parse_element source elt with err -> raise @@ at_field "items" @@ at_index i @@  err in
+                let elt = try parse_element source elt
+                  with err -> raise (at_field "items" @@ at_index i err) in
                 elements (succ i) (elt :: acc) tl
             in elements 0 [] elts
           | Some elt ->
-            let elt = try parse_element source elt with err -> raise @@ at_field "items" err in
+            let elt = try parse_element source elt
+              with err -> raise (at_field "items" err) in
             Monomorphic_array (elt, specs)
           | None ->
             Monomorphic_array (element Any, specs) end
@@ -434,7 +461,7 @@ let of_json json =
             let rec items i acc = function
               | `String s :: tl -> items (succ i) (s :: acc) tl
               | [] -> List.rev acc
-              | k :: _ -> raise @@ at_field "required" @@ at_index i @@ unexpected k "string"
+              | k :: _ -> raise (at_field "required" @@ at_index i @@ unexpected k "string")
             in items 0 [] l in
         let properties =
           match opt_field json "properties" with
@@ -442,16 +469,17 @@ let of_json json =
             let rec items acc = function
               | [] -> List.rev acc
               | (n, elt) :: tl ->
-                let elt = try parse_element source elt with err -> raise @@ at_field "properties" @@ at_field n @@ err in
+                let elt = try parse_element source elt
+                  with err -> raise (at_field "properties" @@ at_field n @@ err) in
                 let req = List.mem n required in
                 items ((n, elt, req) :: acc) tl
             in items [] props
           | None -> []
-          | Some k -> raise @@ at_field "properties" @@ unexpected k "object" in
+          | Some k -> raise (at_field "properties" @@ unexpected k "object") in
         let additional_properties =
           match opt_field json "additionalProperties" with
-          | Some (`Bool false)-> None
-          | None | Some (`Bool true)-> Some (element Any)
+          | Some (`Bool false) -> None
+          | None | Some (`Bool true) -> Some (element Any)
           | Some elt ->
             let elt = try parse_element source elt
               with err -> raise (at_field "additionalProperties" err) in
@@ -526,7 +554,9 @@ let of_json json =
   let definitions = !collected_definitions in
   { root ; definitions ; source ; ids ; world }
 
-(* browse the schema and try to look up every local [Ref] *)
+(*-- creation and update -----------------------------------------------------*)
+
+(* Checks that all local refs and ids are defined *)
 let check_definitions root definitions =
   let collected_id_defs = ref [] in
   let collected_id_refs = ref [] in
@@ -568,27 +598,20 @@ let check_definitions root definitions =
     !collected_id_refs ;
   !collected_id_defs
 
-
-
-(* box a new root without def *)
 let create root =
   let ids = check_definitions root [] in
   { root ; definitions = [] ; world = [] ; ids ; source = Uri.empty }
 
-(*  extract the root *)
 let root { root } =
   root
 
-(* box a root with existing defs *)
 let update root sch =
   let ids = check_definitions sch.root sch.definitions in
   { sch with root ; ids }
 
-(* something to start from *)
 let any =
   create (element Any)
 
-(* external ref to speak about schemas inside other schemas *)
 let self =
   { root = element (Ext_ref (Uri.of_string version)) ;
     definitions = [] ; ids = [] ; world = [] ; source = Uri.empty }
@@ -626,25 +649,20 @@ let definition_path_of_name name =
     | '/' -> name
     | _ -> "/definitions/" ^ name
 
-(* external definition finding *)
 let find_definition name schema =
   let path = definition_path_of_name name in
   find_definition path schema.definitions
 
-(* external definition existence test *)
 let definition_exists name schema =
   let path = definition_path_of_name name in
   definition_exists path schema.definitions
 
-(* external definition insertion *)
 let add_definition name elt schema =
   let path = definition_path_of_name name in
   (* check inside def *)
   let definitions = insert_definition path elt schema.definitions in
   { schema with definitions }, element (Def_ref path)
 
-(* unifies the definitions of two schemas and rewrite them using the
-   newly computed set *)
 let merge_definitions (sa, sb) =
   let rec sorted_merge = function
     | ((na, da) as a) :: ((nb, db) as b) :: tl ->
@@ -661,7 +679,6 @@ let merge_definitions (sa, sb) =
     sorted_merge (List.sort compare (sa.definitions @ sb.definitions)) in
   { sa with definitions }, { sb with definitions }
 
-(* Combines several schemas *)
 let combine op schemas =
   let rec combine sacc eacc = function
     | [] -> update (element (Combine (op, eacc))) sacc
@@ -670,7 +687,8 @@ let combine op schemas =
       combine sacc (s.root :: eacc) ss
   in combine any [] schemas
 
-(* default specs *)
+(*-- default specs -----------------------------------------------------------*)
+
 let array_specs =
   { min_items = 0 ;
     max_items = None ;

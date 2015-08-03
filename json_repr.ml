@@ -1,6 +1,23 @@
 (* Representations of JSON documents *)
 
-(*-- types -------------------------------------------------------------------*)
+(************************************************************************)
+(*  ocplib-json-typed-utils                                             *)
+(*                                                                      *)
+(*    Copyright 2014 OCamlPro                                           *)
+(*                                                                      *)
+(*  This file is distributed under the terms of the GNU Lesser General  *)
+(*  Public License as published by the Free Software Foundation; either *)
+(*  version 2.1 of the License, or (at your option) any later version,  *)
+(*  with the OCaml static compilation exception.                        *)
+(*                                                                      *)
+(*  ocp-read is distributed in the hope that it will be useful,         *)
+(*  but WITHOUT ANY WARRANTY; without even the implied warranty of      *)
+(*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the       *)
+(*  GNU General Public License for more details.                        *)
+(*                                                                      *)
+(************************************************************************)
+
+(*-- types and errors --------------------------------------------------------*)
 
 type document =
   [ `O of (string * value) list
@@ -22,10 +39,11 @@ and path_item =
   | `Index of int
   | `Star | `Next ]
 
-(*-- path operations ---------------------------------------------------------*)
-
 exception Illegal_pointer_notation of string * int * string
 exception Unsupported_path_item of path_item * string
+exception Cannot_merge of path
+
+(*-- path operations ---------------------------------------------------------*)
 
 let print_path_as_json_path ?(wildcards = true) ppf = function
   | [] -> Format.fprintf ppf "/"
@@ -142,8 +160,6 @@ let rec canon = function
 
 let equals l r =
   canon l = canon r
-
-exception Cannot_merge of path
 
 let merge l r =
   let rec merge path l r =

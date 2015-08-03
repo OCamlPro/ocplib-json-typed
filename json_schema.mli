@@ -1,9 +1,26 @@
 (** Abstract representation of JSON schemas as of version
     [http://json-schema.org/draft-04/schema#]. *)
 
+(************************************************************************)
+(*  ocplib-json-typed-utils                                             *)
+(*                                                                      *)
+(*    Copyright 2014 OCamlPro                                           *)
+(*                                                                      *)
+(*  This file is distributed under the terms of the GNU Lesser General  *)
+(*  Public License as published by the Free Software Foundation; either *)
+(*  version 2.1 of the License, or (at your option) any later version,  *)
+(*  with the OCaml static compilation exception.                        *)
+(*                                                                      *)
+(*  ocp-read is distributed in the hope that it will be useful,         *)
+(*  but WITHOUT ANY WARRANTY; without even the implied warranty of      *)
+(*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the       *)
+(*  GNU General Public License for more details.                        *)
+(*                                                                      *)
+(************************************************************************)
+
 open Json_repr
 
-(** {2 Abstract representation of schemas} ************************************)
+(** {2 Abstract representation of schemas} *) (********************************)
 
 (** A JSON schema root. *)
 type schema
@@ -102,7 +119,7 @@ and string_specs =
     max_length : int option
     (** The maximum string length. *) }
 
-(** {2 Combinators to build schemas and elements} *****************************)
+(** {2 Combinators to build schemas and elements} *) (***************************)
 
 (** Construct a naked element (all optional properties to None). *)
 val element : element_kind -> element
@@ -128,7 +145,7 @@ val any : schema
 (** Combines several schemas. *)
 val combine : combinator -> schema list -> schema
 
-(** {2 Named definitions} *****************************************************)
+(** {2 Named definitions} *) (*************************************************)
 
 (** Merges the definitions of two schemas if possible and returns the
     updated schemas, so that their elements can be mixed without
@@ -144,7 +161,7 @@ val simplify : schema -> schema
     relative to ["#/definitions"] as recommended by the standard. May
     raise {!Duplicate_definition} if this path is already used or any
     error raised by {!Json_repr.path_of_json_pointer} with
-    [~wildcards:false]. Returns the modified schema and the {!Def_ref}
+    [~wildcards:false]. Returns the modified schema and the [Def_ref]
     node that references this definition to be used in the schema. *)
 val add_definition : string -> element -> schema -> schema * element
 
@@ -156,7 +173,7 @@ val find_definition : string -> schema -> element
     See {!add_definition} for the name format. *)
 val definition_exists : string -> schema -> bool
 
-(** {2 Predefined values} *****************************************************)
+(** {2 Predefined values} *) (*************************************************)
 
 (** Default Parameters of the [Array] and [MonomorphicArray] type specifiers. *)
 val array_specs : array_specs
@@ -167,7 +184,7 @@ val object_specs : object_specs
 (** Default parameters of the [String] type specifier. *)
 val string_specs : string_specs
 
-(** {2 JSON Serialization} ****************************************************)
+(** {2 JSON Serialization} *)
 
 (** Formats a JSON schema as its JSON representation. *)
 val to_json : schema -> [> document ]
@@ -176,7 +193,7 @@ val to_json : schema -> [> document ]
     May throw {!Cannot_parse}. *)
 val of_json : value -> schema
 
-(** {2 Errors} ****************************************************************)
+(** {2 Errors} *) (************************************************************)
 
 (** An error happened during parsing.
     May box one of the following exceptions, among others.. *)
