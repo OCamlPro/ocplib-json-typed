@@ -1,0 +1,8 @@
+version = "0.1"
+description = "Reliable manipulation of JSON objects"
+requires = "uri"
+archive(byte) = "ocplib_json_typed.cma"
+archive(byte, plugin) = "ocplib_json_typed.cma"
+archive(native) = "ocplib_json_typed.cmxa"
+archive(native, plugin) = "ocplib_json_typed.cmxs"
+exists_if = "ocplib_json_typed.cma"
