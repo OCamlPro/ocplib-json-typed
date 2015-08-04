@@ -488,3 +488,20 @@ let union = function
        Json_schema.combine
          Json_schema.One_of
          (List.map (fun (Case (encoding, _, _)) -> schema encoding) l))
+
+type 'a value_encoding = ('a, value) encoding
+type 'a document_encoding = ('a, document) encoding
+
+let value_encoding enc =
+  Custom
+    (Value_witness,
+     (fun x -> (construct enc x :> value)),
+     destruct enc,
+     schema enc)
+
+let document_encoding enc =
+  Custom
+    (Document_witness,
+     (fun x -> (construct enc x :> document)),
+     destruct enc,
+     schema enc)

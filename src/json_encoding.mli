@@ -22,9 +22,19 @@ open Json_repr
 (** {2 Dependent types describing JSON document structures} *) (***************)
 
 (** An encoding between an OCaml data type (the first parameter) and a
-    JSON representation. The second parameter is to mark [encoding]s that
-    can be used to describe toplevel json documents. *)
+    JSON representation. The second parameter represents the subset of
+    JSON documents used by the encoding. It is mostly present to mark
+    [encoding]s that can be used to describe toplevel json
+    documents. *)
 type ('a, 'b) encoding constraint 'b = [< value]
+
+(** A shrotcut for encodings of value-level JSON structures.
+    Useful for clarifying interfaces when the exact representation is useless. *)
+type 'a value_encoding = ('a, value) encoding
+
+(** A shrotcut for encodings of document-level JSON structures.
+    Useful for clarifying interfaces when the exact representation is useless. *)
+type 'a document_encoding = ('a, document) encoding
 
 (** Builds a json value from an OCaml value and an encoding. *)
 val construct : ('t, [< value ] as 'k) encoding -> 't -> 'k
@@ -34,6 +44,14 @@ val construct : ('t, [< value ] as 'k) encoding -> 't -> 'k
 val destruct : ('t, [< value ]) encoding -> [< value ] -> 't
 
 (** {2 JSON type combinators for simple immediates} *) (***********************)
+
+(** Generalizes the JSON representation part of an encoding type.
+    Useful for clarifying interfaces when the exact representation is useless. *)
+val value_encoding : ('a, [< value ]) encoding -> 'a value_encoding
+
+(** Generalizes the JSON representation part of an encoding type.
+    Useful for clarifying interfaces when the exact representation is useless. *)
+val document_encoding : ('a, [< document ]) encoding -> 'a document_encoding
 
 (** An encoding of an OCaml unit by any (ignored) JSON. *)
 val unit : (unit, value) encoding
