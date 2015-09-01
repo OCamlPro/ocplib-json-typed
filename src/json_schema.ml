@@ -1,7 +1,7 @@
 (* Abstract representation of JSON schemas. *)
 
 (************************************************************************)
-(*  ocplib-json-typed-utils                                             *)
+(*  ocplib-json-typed                                                   *)
 (*                                                                      *)
 (*    Copyright 2014 OCamlPro                                           *)
 (*                                                                      *)
@@ -10,7 +10,7 @@
 (*  version 2.1 of the License, or (at your option) any later version,  *)
 (*  with the OCaml static compilation exception.                        *)
 (*                                                                      *)
-(*  ocp-read is distributed in the hope that it will be useful,         *)
+(*  ocplib-json-typed is distributed in the hope that it will be useful,*)
 (*  but WITHOUT ANY WARRANTY; without even the implied warranty of      *)
 (*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the       *)
 (*  GNU General Public License for more details.                        *)
