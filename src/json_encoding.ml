@@ -257,16 +257,18 @@ let schema encoding =
   let rec object_schema
     : type t. (t, [ `O of (string * value) list ]) uencoding -> (string * element * bool) list
     = function
-    | Obj (Req (n, t)) -> [ n, schema t, true ]
-    | Obj (Opt (n, t)) -> [ n, schema t, false ]
-    | Objs (o1, o2) -> object_schema o1 @ object_schema o2
-    | _ -> invalid_arg "Json_typed.schema: invalid argument to merge_objs"
+      | Conv (_, _, o) -> object_schema o
+      | Obj (Req (n, t)) -> [ n, schema t, true ]
+      | Obj (Opt (n, t)) -> [ n, schema t, false ]
+      | Objs (o1, o2) -> object_schema o1 @ object_schema o2
+      | _ -> invalid_arg "Json_typed.schema: invalid argument to merge_objs"
   and array_schema
     : type t. (t, [ `A of value list ]) uencoding -> element list
     = function
-    | Tup t -> [ schema t ]
-    | Tups (t1, t2) -> array_schema t1 @ array_schema t2
-    | _ -> invalid_arg "Json_typed.schema: invalid argument to merge_tups"
+      | Conv (_, _, o) -> array_schema o
+      | Tup t -> [ schema t ]
+      | Tups (t1, t2) -> array_schema t1 @ array_schema t2
+      | _ -> invalid_arg "Json_typed.schema: invalid argument to merge_tups"
   and schema
     : type t k. (t, k) uencoding -> element
     = function
