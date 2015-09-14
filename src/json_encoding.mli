@@ -160,7 +160,7 @@ val array :
   ('a, _) encoding ->
   ('a array, [ `A of value list ]) encoding
 
-(** An encoding of an OCaml array by a JSON one. *)
+(** An encoding of an OCaml list by a JSON one. *)
 val list :
   ('a, _) encoding ->
   ('a list, [ `A of value list ]) encoding
