@@ -97,6 +97,9 @@ val req : string -> ('t, _) encoding -> 't field
 (** An optional field of a given type, using an OCaml [option]. *)
 val opt : string -> ('t, _) encoding -> 't option field
 
+(** An optional field of a given type, ommited when equal to a default value. *)
+val dft : string -> ('t, _) encoding -> 't -> 't field
+
 (** An encoding of an OCaml value by a singleton object. *)
 val obj1 :
   'f1 field ->

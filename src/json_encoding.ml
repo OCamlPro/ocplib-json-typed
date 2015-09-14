@@ -67,6 +67,7 @@ type (_, 'k) uencoding =
 and _ field =
   | Req : string * ('a, [< value ]) uencoding -> 'a field
   | Opt : string * ('a, [< value ]) uencoding -> 'a option field
+  | Dft : string * ('a, [< value ]) uencoding * 'a -> 'a field
 
 (* used to make the type of custom encodings more specific, especially
    when wrapping another encoding *)
@@ -159,6 +160,9 @@ let rec construct
     | Obj (Req (n, t)) ->
       let w v = (construct t v :> value) in
       (fun v -> `O [ n, w v ])
+    | Obj (Dft (n, t, d)) ->
+      let w v = (construct t v :> value) in
+      (fun v -> `O (if v = d then [ n, w v ] else []))
     | Obj (Opt (n, t)) ->
       let w v = (construct t v :> value) in
       (function None -> `O [] | Some v -> `O [ n, w v ])
@@ -212,6 +216,14 @@ let rec destruct
            | Cannot_destruct (path, err) ->
              raise (Cannot_destruct (`Field n :: path, err)))
         | k -> raise @@ unexpected k "object")
+    | Obj (Dft (n, t, d)) ->
+      (function
+        | `O fields ->
+          (try destruct t (List.assoc n fields) with
+           | Not_found -> d
+           | Cannot_destruct (path, err) ->
+             raise (Cannot_destruct (`Field n :: path, err)))
+        | k -> raise @@ unexpected k "object")
     | Objs (o1, o2) ->
       (fun j -> destruct o1 j, destruct o2 j)
     | Tup _ as t ->
@@ -260,6 +272,7 @@ let schema encoding =
       | Conv (_, _, o) -> object_schema o
       | Obj (Req (n, t)) -> [ n, schema t, true ]
       | Obj (Opt (n, t)) -> [ n, schema t, false ]
+      | Obj (Dft (n, t, _)) -> [ n, schema t, false ]
       | Objs (o1, o2) -> object_schema o1 @ object_schema o2
       | _ -> invalid_arg "Json_typed.schema: invalid argument to merge_objs"
   and array_schema
@@ -306,6 +319,7 @@ let schema encoding =
 
 let req n t = Req (n, t)
 let opt n t = Opt (n, t)
+let dft n t d = Dft (n, t, d)
 
 let mu name self = Mu (name, self)
 let null = Null
@@ -437,6 +451,7 @@ let merge_tups t1 t2 =
   Tups (t1, t2)
 let list t =
   Conv (Array.of_list, Array.to_list, Array t)
+
 let merge_objs o1 o2 =
   Objs (o1, o2)
 let empty =
