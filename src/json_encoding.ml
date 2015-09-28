@@ -414,6 +414,20 @@ let def name uencoding =
       let sch, def = add_definition name (root sch) sch in
       update def sch))
 
+let assoc : type t. (t, [< value ]) uencoding -> ((string * t) list, [ `O of (string * value) list]) uencoding = fun t ->
+  Custom
+    (Obj_witness,
+     (fun l -> `O (List.map (fun (n, v) -> n, (construct t v :> value)) l)),
+     (function
+       | `O l ->
+         let destruct n t v = try
+             destruct t v
+           with Cannot_destruct (p, exn) -> raise (Cannot_destruct (`Field n :: p, exn)) in
+         List.map (fun (n, v) -> n, destruct n t v) l
+       | #value as k -> raise (unexpected k "asssociative object")),
+     let s = schema t in
+     Json_schema.(update (element (Object { object_specs with additional_properties = Some (root s)})) s))
+
 let option : type t. (t, [< value ]) uencoding -> (t option, value) uencoding = fun t ->
   Custom
     (Value_witness,

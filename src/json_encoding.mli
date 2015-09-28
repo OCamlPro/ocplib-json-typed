@@ -165,6 +165,11 @@ val list :
   ('a, _) encoding ->
   ('a list, [ `A of value list ]) encoding
 
+(** An encoding of an OCaml associative list by a JSON object. *)
+val assoc :
+  ('a, _) encoding ->
+  ((string * 'a) list, [ `O of (string * value) list ]) encoding
+
 (** An encoding of an OCaml value by a singleton array. *)
 val tup1 :
   ('f1, _) encoding ->
