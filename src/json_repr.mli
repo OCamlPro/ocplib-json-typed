@@ -43,6 +43,31 @@ and value =
   | `Null
     (** The [null] constant. *) ]
 
+(** A JSON value compatible with {!Yojson.Safe.json}. *)
+type json =
+  [ `Bool of bool
+    (** A JS boolean [true] of [false]. *)
+  | `Assoc of (string * json) list
+    (** JSON object. *)
+  | `Float of float
+    (** A floating point number (double precision). *)
+  | `Int of int
+    (** A number without decimal point or exponent. *)
+  | `Intlit of string
+    (** A number without decimal point or exponent, preserved as string. *)
+  | `List of json list
+    (** A JS array. *)
+  | `Null
+    (** The [null] constant. *)
+  | `String of string
+    (** An UTF-8 encoded string. *)
+  | `Tuple of json list
+    (** A tuple (non-standard). Syntax: ("abc", 123). *)
+  | `Variant of string * json option
+    (** A variant (non-standard). Syntax: <"Foo"> or <"Bar": 123>. *) ]
+
+val from_yojson : json -> value
+
 (** {2 Paths in JSON documents} *) (*******************************************)
 
 (** An abstract type for paths into a JSON document.
