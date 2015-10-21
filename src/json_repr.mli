@@ -67,6 +67,7 @@ type json =
     (** A variant (non-standard). Syntax: <"Foo"> or <"Bar": 123>. *) ]
 
 val from_yojson : json -> value
+val to_yojson : value -> json
 
 (** {2 Paths in JSON documents} *) (*******************************************)
 
