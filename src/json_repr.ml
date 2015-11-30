@@ -69,21 +69,25 @@ let from_yojson non_basic =
     | `Bool b -> `Bool b
   in to_basic non_basic |> to_value
 
-let rec to_yojson = function
-  | `A values -> `List (List.map to_yojson values)
-  | `O values -> `Assoc (List.map (fun (k, v) -> (k, to_yojson v)) values)
-  | `Float f ->
-    let (fract, intr) = modf f in
-    let (min_intf, max_intf) = (min_int |> float_of_int,
-                                max_int |> float_of_int) in
-    if fract = 0.0 then
-      if intr >= min_intf && intr <= max_intf
-      then `Int (int_of_float intr)
-      else `Intlit (Printf.sprintf "%.0f" intr)
-    else `Float f
-  | `Bool b -> `Bool b
-  | `String s -> `String s
-  | `Null -> `Null
+let rec to_yojson json =
+  let rec aux = function
+    | `A values ->
+      `List (List.map aux values)
+    | `O values ->
+      `Assoc (List.map (fun (k, v) -> (k, aux v)) values)
+    | `Float f ->
+      let (fract, intr) = modf f in
+      let (min_intf, max_intf) = (min_int |> float_of_int,
+                                  max_int |> float_of_int) in
+      if fract = 0.0 then
+        if intr >= min_intf && intr <= max_intf
+        then `Int (int_of_float intr)
+        else `Intlit (Printf.sprintf "%.0f" intr)
+      else `Float f
+    | `Bool b -> `Bool b
+    | `String s -> `String s
+    | `Null -> `Null
+  in aux (json :> value)
 
 type path =
   path_item list
