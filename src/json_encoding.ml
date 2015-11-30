@@ -267,12 +267,12 @@ let schema encoding =
   let open Json_schema in
   let sch = ref any in
   let rec object_schema
-    : type t. (t, [ `O of (string * value) list ]) uencoding -> (string * element * bool) list
+    : type t. (t, [ `O of (string * value) list ]) uencoding -> (string * element * bool * value option) list
     = function
       | Conv (_, _, o) -> object_schema o
-      | Obj (Req (n, t)) -> [ n, schema t, true ]
-      | Obj (Opt (n, t)) -> [ n, schema t, false ]
-      | Obj (Dft (n, t, _)) -> [ n, schema t, false ]
+      | Obj (Req (n, t)) -> [ n, schema t, true, None ]
+      | Obj (Opt (n, t)) -> [ n, schema t, false, None ]
+      | Obj (Dft (n, t, d)) -> [ n, schema t, false, Some (construct t d :> value)]
       | Objs (o1, o2) -> object_schema o1 @ object_schema o2
       | _ -> invalid_arg "Json_typed.schema: invalid argument to merge_objs"
   and array_schema
@@ -317,9 +317,9 @@ let schema encoding =
 
 (*-- utility wrappers over the GADT ------------------------------------------*)
 
-let req n t = Req (n, t)
-let opt n t = Opt (n, t)
-let dft n t d = Dft (n, t, d)
+let req ?title ?description n t = Req (n, Describe (title, description, t))
+let opt ?title ?description n t = Opt (n, Describe (title, description, t))
+let dft ?title ?description n t d = Dft (n, Describe (title, description, t), d)
 
 let mu name self = Mu (name, self)
 let null = Null
