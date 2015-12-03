@@ -1,5 +1,8 @@
 let to_channel chan json =
-  Ezjsonm.to_channel ~minify:true chan (json :> Ezjsonm.t) ;
+  let json = match json with
+    | `A _ | `O _ as d -> d
+    | v -> `A [ v ] in
+  Ezjsonm.to_channel ~minify:false chan (json :> Ezjsonm.t) ;
   Printf.fprintf stdout "\n%!"
 
 let register_test, all_tests =

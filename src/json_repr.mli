@@ -19,17 +19,10 @@
 
 (** {2 In memory JSON document representation} *) (****************************)
 
-(** A JSON document, that cannot be an immediate.
-    This type is compatible with {!Ezjsonm.t}. *)
-type document =
-  [ `O of (string * value) list
-    (** An object [{ "name": value, ...  }], with UTF-8 encoded names. *)
-  | `A of value list
-    (** An array [[ value, ... ]] .*) ]
-
-(** A non toplevel JSON value, structure or immediate.
-    This type is compatible with {!Ezjsonm.value}. *)
-and value =
+(** A JSON value compatible with {!Ezjsonm.value}.
+    This is the main type used by this library, unlike {!yojson},
+    which is provided only for compatibility. *)
+type value =
   [ `O of (string * value) list
     (** Cf. {!document}. *)
   | `A of value list
@@ -42,32 +35,6 @@ and value =
     (** An UTF-8 encoded string. *)
   | `Null
     (** The [null] constant. *) ]
-
-(** A JSON value compatible with {!Yojson.Safe.json}. *)
-type json =
-  [ `Bool of bool
-    (** A JS boolean [true] of [false]. *)
-  | `Assoc of (string * json) list
-    (** JSON object. *)
-  | `Float of float
-    (** A floating point number (double precision). *)
-  | `Int of int
-    (** A number without decimal point or exponent. *)
-  | `Intlit of string
-    (** A number without decimal point or exponent, preserved as string. *)
-  | `List of json list
-    (** A JS array. *)
-  | `Null
-    (** The [null] constant. *)
-  | `String of string
-    (** An UTF-8 encoded string. *)
-  | `Tuple of json list
-    (** A tuple (non-standard). Syntax: ("abc", 123). *)
-  | `Variant of string * json option
-    (** A variant (non-standard). Syntax: <"Foo"> or <"Bar": 123>. *) ]
-
-val from_yojson : json -> value
-val to_yojson : [< value] -> json
 
 (** {2 Paths in JSON documents} *) (*******************************************)
 
@@ -169,3 +136,36 @@ exception Unsupported_path_item of path_item * string
 val print_error
   : ?print_unknown: (Format.formatter -> exn -> unit) ->
   Format.formatter -> exn -> unit
+
+(** {2 YoJSON Compatibility} *) (**********************************************)
+
+(** A JSON value compatible with {!Yojson.Safe.json}.
+    Provided only for compatibility.
+    See converters *)
+type yojson =
+  [ `Bool of bool
+    (** A JS boolean [true] of [false]. *)
+  | `Assoc of (string * yojson) list
+    (** JSON object. *)
+  | `Float of float
+    (** A floating point number (double precision). *)
+  | `Int of int
+    (** A number without decimal point or exponent. *)
+  | `Intlit of string
+    (** A number without decimal point or exponent, preserved as string. *)
+  | `List of yojson list
+    (** A JS array. *)
+  | `Null
+    (** The [null] constant. *)
+  | `String of string
+    (** An UTF-8 encoded string. *)
+  | `Tuple of yojson list
+    (** A tuple (non-standard). Syntax: ("abc", 123). *)
+  | `Variant of string * yojson option
+    (** A variant (non-standard). Syntax: <"Foo"> or <"Bar": 123>. *) ]
+
+(** Conversion helper. *)
+val from_yojson : [< yojson ] -> [> value ]
+
+(** Conversion helper. *)
+val to_yojson : [< value] -> [> yojson ]

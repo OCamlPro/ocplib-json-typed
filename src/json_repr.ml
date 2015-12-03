@@ -31,17 +31,17 @@ and value =
   | `String of string
   | `Null ]
 
-type json =
+type yojson =
   [ `Bool of bool
-  | `Assoc of (string * json) list
+  | `Assoc of (string * yojson) list
   | `Float of float
   | `Int of int
   | `Intlit of string
-  | `List of json list
+  | `List of yojson list
   | `Null
   | `String of string
-  | `Tuple of json list
-  | `Variant of string * json option ]
+  | `Tuple of yojson list
+  | `Variant of string * yojson option ]
 
 let from_yojson non_basic =
   (* Delete `Variant, `Tuple and `Intlit *)
@@ -56,21 +56,20 @@ let from_yojson non_basic =
     | `Float f -> `Float f
     | `String s -> `String s
     | `Null -> `Null
-    | `Bool b -> `Bool b
-  in
+    | `Bool b -> `Bool b in
   (* Rename `Assoc, `Int and `List *)
-  let rec to_value basic = match basic with
+  let rec to_value : 'a. _ -> ([> value ] as 'a) = function
     | `List l -> `A (List.map to_value l)
     | `Assoc l -> `O (List.map (fun (key, value) -> (key, to_value value)) l)
     | `Int i -> `Float (float_of_int i)
     | `Float f -> `Float f
     | `Null -> `Null
     | `String s -> `String s
-    | `Bool b -> `Bool b
-  in to_basic non_basic |> to_value
+    | `Bool b -> `Bool b in
+  to_basic (non_basic :> yojson) |> to_value
 
 let rec to_yojson json =
-  let rec aux = function
+  let rec aux : 'a. _ -> ([> yojson ] as 'a) = function
     | `A values ->
       `List (List.map aux values)
     | `O values ->

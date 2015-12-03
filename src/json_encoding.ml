@@ -42,42 +42,26 @@ let unexpected kind expected =
   Cannot_destruct ([], Unexpected (kind, expected))
 
 (* intermediate internal type without the polymorphic variant constraint *)
-type (_, 'k) uencoding =
-  | Null : (unit, [ `Null ]) uencoding
-  | Int : (int, [ `Float of float ]) uencoding
-  | Bool : (bool, [ `Bool of bool ]) uencoding
-  | String : (string, [ `String of string ]) uencoding
-  | Float : (float, [ `Float of float ]) uencoding
-  | Array : ('a, [< value ]) uencoding -> ('a array, [ `A of value list ]) uencoding
-  | Obj : 'a field -> ('a, [ `O of (string * value) list ]) uencoding
-  | Objs :
-      ('a, [ `O of (string * value) list ]) uencoding *
-      ('b, [ `O of (string * value) list ]) uencoding ->
-    ('a * 'b, [ `O of (string * value) list ]) uencoding
-  | Tup : ('a, [< value ]) uencoding -> ('a, [ `A of value list ]) uencoding
-  | Tups :
-      ('a, [ `A of value list ]) uencoding *
-      ('b, [ `A of value list ]) uencoding ->
-    ('a * 'b, [ `A of value list ]) uencoding
-  | Custom : 'k witness * ('t -> 'k) * (value -> 't) * Json_schema.schema -> ('t, 'k) uencoding
-  | Conv : ('a -> 'b) * ('b -> 'a) * ('b, 'k) uencoding -> ('a, 'k) uencoding
-  | Describe : string option * string option * ('a, 'k) uencoding -> ('a, 'k) uencoding
-  | Mu : string * (('a, 'k) uencoding -> ('a, 'k) uencoding) -> ('a, 'k) uencoding
+type _ encoding =
+  | Null : unit encoding
+  | Int : int encoding
+  | Bool : bool encoding
+  | String : string encoding
+  | Float : float encoding
+  | Array : 'a encoding -> 'a array encoding
+  | Obj : 'a field -> 'a encoding
+  | Objs : 'a encoding * 'b encoding -> ('a * 'b) encoding
+  | Tup : 'a encoding -> 'a encoding
+  | Tups : 'a encoding * 'b encoding -> ('a * 'b) encoding
+  | Custom : ('t -> value) * (value -> 't) * Json_schema.schema -> 't encoding
+  | Conv : ('a -> 'b) * ('b -> 'a) * 'b encoding -> 'a encoding
+  | Describe : string option * string option * 'a encoding -> 'a encoding
+  | Mu : string * ('a encoding -> 'a encoding) -> 'a encoding
 
 and _ field =
-  | Req : string * ('a, [< value ]) uencoding -> 'a field
-  | Opt : string * ('a, [< value ]) uencoding -> 'a option field
-  | Dft : string * ('a, [< value ]) uencoding * 'a -> 'a field
-
-(* used to make the type of custom encodings more specific, especially
-   when wrapping another encoding *)
-and _ witness =
-  | Document_witness : document witness
-  | Value_witness : value witness
-  | Obj_witness : [ `O of (string * value) list ] witness
-  | Custom_witness : (_, 'k) uencoding -> 'k witness
-
-type ('a, 'b) encoding = ('a, 'b) uencoding constraint 'b = [< value]
+  | Req : string * 'a encoding -> 'a field
+  | Opt : string * 'a encoding -> 'a option field
+  | Dft : string * 'a encoding * 'a -> 'a field
 
 let rec print_error ?print_unknown ppf = function
   | Cannot_destruct ([], exn) ->
@@ -142,44 +126,52 @@ let rec print_error ?print_unknown ppf = function
 
 (*-- construct / destruct / schema over the nain GADT forms ------------------*)
 
-let rec construct
-  : type t k. (t, k) uencoding -> (t -> k)
-  = function
-    | Null -> (fun () -> `Null)
-    | Int -> (fun (i : t) -> `Float (float  i))
-    | Bool -> (fun (b : t) -> `Bool b)
-    | String -> (fun s -> `String s)
-    | Float -> (fun f -> `Float f)
-    | Describe (_, _, t) -> construct t
-    | Custom (_, w, _, _) -> (fun (j : t) -> (w j : k))
-    | Conv (ffrom, _, t) -> (fun v -> construct t (ffrom v))
-    | Mu (name, self) -> construct (self (Mu (name, self)))
-    | Array t ->
-      let w v = (construct t v :> value) in
-      (fun arr -> `A (Array.to_list (Array.map w arr)))
-    | Obj (Req (n, t)) ->
-      let w v = (construct t v :> value) in
-      (fun v -> `O [ n, w v ])
-    | Obj (Dft (n, t, d)) ->
-      let w v = (construct t v :> value) in
-      (fun v -> `O (if v = d then [ n, w v ] else []))
-    | Obj (Opt (n, t)) ->
-      let w v = (construct t v :> value) in
-      (function None -> `O [] | Some v -> `O [ n, w v ])
-    | Objs (o1, o2) ->
-      let w1 v = construct o1 v in
-      let w2 v = construct o2 v in
-      (function (v1, v2) -> let `O l1, `O l2 = w1 v1, w2 v2 in `O (l1 @ l2))
-    | Tup t ->
-      let w v = (construct t v :> value) in
-      (fun v -> `A [ w v ])
-    | Tups (o1, o2) ->
-      let w1 v = construct o1 v in
-      let w2 v = construct o2 v in
-      (function (v1, v2) -> let `A l1, `A l2 = w1 v1, w2 v2 in `A (l1 @ l2))
+let construct enc v =
+  let rec construct
+    : type t. t encoding -> t -> value
+    = function
+      | Null -> (fun () -> `Null)
+      | Int -> (fun (i : t) -> `Float (float  i))
+      | Bool -> (fun (b : t) -> `Bool b)
+      | String -> (fun s -> `String s)
+      | Float -> (fun f -> `Float f)
+      | Describe (_, _, t) -> construct t
+      | Custom (w, _, _) -> (fun (j : t) -> w j)
+      | Conv (ffrom, _, t) -> (fun v -> construct t (ffrom v))
+      | Mu (name, self) -> construct (self (Mu (name, self)))
+      | Array t ->
+        let w v = (construct t v :> value) in
+        (fun arr -> `A (Array.to_list (Array.map w arr)))
+      | Obj (Req (n, t)) ->
+        let w v = (construct t v :> value) in
+        (fun v -> `O [ n, w v ])
+      | Obj (Dft (n, t, d)) ->
+        let w v = (construct t v :> value) in
+        (fun v -> `O (if v = d then [ n, w v ] else []))
+      | Obj (Opt (n, t)) ->
+        let w v = (construct t v :> value) in
+        (function None -> `O [] | Some v -> `O [ n, w v ])
+      | Objs (o1, o2) ->
+        let w1 v = construct o1 v in
+        let w2 v = construct o2 v in
+        (function (v1, v2) ->
+        match w1 v1, w2 v2 with
+        | `O l1, `O l2 -> `O (l1 @ l2)
+        | _ -> invalid_arg "Json_encoding.construct: consequence of bad merge_objs")
+      | Tup t ->
+        let w v = (construct t v :> value) in
+        (fun v -> `A [ w v ])
+      | Tups (o1, o2) ->
+        let w1 v = construct o1 v in
+        let w2 v = construct o2 v in
+        (function (v1, v2) ->
+        match w1 v1, w2 v2 with
+        | `A l1, `A l2 -> `A (l1 @ l2)
+        | _ -> invalid_arg "Json_encoding.construct: consequence of bad merge_tups") in
+  (construct enc v : value :> [> value ])
 
 let rec destruct
-  : type t k. (t, k) uencoding -> (value -> t)
+  : type t. t encoding -> (value -> t)
   = function
     | Null -> (function `Null -> () | k -> raise (unexpected k "null"))
     | Int -> (function `Float f -> int_of_float f | k -> raise (unexpected k "number"))
@@ -187,7 +179,7 @@ let rec destruct
     | String -> (function `String s -> s | k -> raise (unexpected k "string"))
     | Float -> (function `Float f -> f | k -> raise (unexpected k "float"))
     | Describe (_, _, t) -> destruct t
-    | Custom (_, _, r, _) -> r
+    | Custom (_, r, _) -> r
     | Conv (_, fto, t) -> (fun v -> fto (destruct t v))
     | Mu (name, self) -> destruct (self (Mu (name, self)))
     | Array t ->
@@ -227,7 +219,7 @@ let rec destruct
     | Objs (o1, o2) ->
       (fun j -> destruct o1 j, destruct o2 j)
     | Tup _ as t ->
-      let r, i = destruct_tup 0 (t :> (t, [ `A of value list]) uencoding) in
+      let r, i = destruct_tup 0 t in
       (function
         | `A cells ->
           let cells = Array.of_list cells in
@@ -247,7 +239,7 @@ let rec destruct
           else r cells
         | k -> raise @@ unexpected k "array")
 and destruct_tup
-  : type t. int -> (t, [ `A of value list ]) uencoding -> (value array -> t) * int
+  : type t. int -> t encoding -> (value array -> t) * int
   = fun i t -> match t with
     | Tup t ->
       (fun arr ->
@@ -257,7 +249,7 @@ and destruct_tup
       let r1, i = destruct_tup i t1 in
       let r2, i = destruct_tup i t2 in
       (fun arr -> r1 arr, r2 arr), i
-    | _ -> invalid_arg "Json_typed.destruct: invalid argument to merge_tups"
+    | _ -> invalid_arg "Json_typed.destruct: consequence of bad merge_tups"
 
 let destruct t =
   let d = destruct t in
@@ -267,23 +259,23 @@ let schema encoding =
   let open Json_schema in
   let sch = ref any in
   let rec object_schema
-    : type t. (t, [ `O of (string * value) list ]) uencoding -> (string * element * bool * value option) list
+    : type t. t encoding -> (string * element * bool * value option) list
     = function
       | Conv (_, _, o) -> object_schema o
       | Obj (Req (n, t)) -> [ n, schema t, true, None ]
       | Obj (Opt (n, t)) -> [ n, schema t, false, None ]
       | Obj (Dft (n, t, d)) -> [ n, schema t, false, Some (construct t d :> value)]
       | Objs (o1, o2) -> object_schema o1 @ object_schema o2
-      | _ -> invalid_arg "Json_typed.schema: invalid argument to merge_objs"
+      | _ -> invalid_arg "Json_typed.schema: consequence of bad merge_objs"
   and array_schema
-    : type t. (t, [ `A of value list ]) uencoding -> element list
+    : type t. t encoding -> element list
     = function
       | Conv (_, _, o) -> array_schema o
       | Tup t -> [ schema t ]
       | Tups (t1, t2) -> array_schema t1 @ array_schema t2
-      | _ -> invalid_arg "Json_typed.schema: invalid argument to merge_tups"
+      | _ -> invalid_arg "Json_typed.schema: consequence of bad merge_tups"
   and schema
-    : type t k. (t, k) uencoding -> element
+    : type t. t encoding -> element
     = function
       | Null -> element Null
       | Int -> element Integer
@@ -292,17 +284,16 @@ let schema encoding =
       | Float -> element Number
       | Describe (title, description, t) ->
         { (schema t) with title ; description }
-      | Custom (_, _, _, s) ->
+      | Custom (_, _, s) ->
         sch := fst (merge_definitions (!sch, s)) ;
         root s
       | Conv (_, _, t) -> schema t
-      | Mu (name, f) as self ->
+      | Mu (name, f) ->
         let fake_schema =
           let sch, elt = add_definition name (element Dummy) any in
           update elt sch in
         let fake_self =
-          Custom (Custom_witness self,
-                  (fun _ -> assert false),
+          Custom ((fun _ -> assert false),
                   (fun _ -> assert false),
                   fake_schema) in
         let nsch, def = add_definition name (schema (f fake_self)) !sch in
@@ -333,7 +324,7 @@ let conv ffrom fto ?schema t =
   | Some schema ->
     let ffrom j = construct t (ffrom j) in
     let fto v = fto (destruct t v) in
-    Custom (Custom_witness t, ffrom, fto, schema)
+    Custom (ffrom, fto, schema)
 let bytes = Conv (Bytes.to_string, Bytes.of_string, string)
 let bool = Bool
 let array t = Array t
@@ -382,7 +373,7 @@ let tup6 f1 f2 f3 f4 f5 f6 =
      (fun (a, (b, (c, (d, (e, f))))) -> (a, b, c, d, e, f)),
      Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, Tup f6))))))
 
-let custom w r ~schema = Custom (Value_witness, w, r, schema)
+let custom w r ~schema = Custom (w, r, schema)
 let describe ?title ?description t = Describe (title, description, t)
 let string_enum cases =
   let specs = Json_schema.({ pattern = None ; min_length = 0 ; max_length = None }) in
@@ -404,20 +395,18 @@ let string_enum cases =
     ~schema: Json_schema.(update { (element (String specs)) with enum = Some enum } any)
     string
 
-let def name uencoding =
+let def name encoding =
   Custom
-    (Custom_witness uencoding,
-     construct uencoding,
-     destruct uencoding,
+    (construct encoding,
+     destruct encoding,
      (let open Json_schema in
-      let sch = schema uencoding in
+      let sch = schema encoding in
       let sch, def = add_definition name (root sch) sch in
       update def sch))
 
-let assoc : type t. (t, [< value ]) uencoding -> ((string * t) list, [ `O of (string * value) list]) uencoding = fun t ->
+let assoc : type t. t encoding -> (string * t) list encoding = fun t ->
   Custom
-    (Obj_witness,
-     (fun l -> `O (List.map (fun (n, v) -> n, (construct t v :> value)) l)),
+    ((fun l -> `O (List.map (fun (n, v) -> n, (construct t v :> value)) l)),
      (function
        | `O l ->
          let destruct n t v = try
@@ -428,10 +417,9 @@ let assoc : type t. (t, [< value ]) uencoding -> ((string * t) list, [ `O of (st
      let s = schema t in
      Json_schema.(update (element (Object { object_specs with additional_properties = Some (root s)})) s))
 
-let option : type t. (t, [< value ]) uencoding -> (t option, value) uencoding = fun t ->
+let option : type t. t encoding -> t option encoding = fun t ->
   Custom
-    (Value_witness,
-     (function None -> `Null | Some v -> (construct t v :> value)),
+    ((function None -> `Null | Some v -> (construct t v :> value)),
      (function `Null -> None | j -> Some (destruct t j)),
      let s = schema t in
      Json_schema.(update (element (Combine (One_of, [(root s) ; element Null]))) s))
@@ -441,22 +429,19 @@ let int32 =
 
 let any_value =
   Custom
-    (Value_witness,
-     (fun value -> value),
+    ((fun value -> value),
      (fun value -> value),
      Json_schema.any)
 
 let any_document =
   Custom
-    (Document_witness,
-     (fun value -> value),
+    ((fun value -> value),
      (function `A _ | `O _ as d -> d | k -> raise @@ unexpected k "array or object"),
      Json_schema.any)
 
 let any_schema =
   Custom
-    (Value_witness,
-     Json_schema.to_json,
+    (Json_schema.to_json,
      (fun j -> try Json_schema.of_json j with err ->
         raise (Cannot_destruct ([], Bad_schema err))),
      Json_schema.self)
@@ -470,8 +455,7 @@ let merge_objs o1 o2 =
   Objs (o1, o2)
 let empty =
   Custom
-    (Obj_witness,
-     (fun () -> `O []),
+    ((fun () -> `O []),
      (function
        | `O [] -> ()
        | `O [ f, _] -> raise (Cannot_destruct ([], Unexpected_field f))
@@ -485,13 +469,12 @@ let empty =
                                             property_dependencies = [] }))))
 let unit =
   Custom
-    (Value_witness,
-     (fun () -> `O []),
+    ((fun () -> `O []),
      (function
        | _ -> ()),
      Json_schema.any)
 
-type 't case = Case : ('a, 'k) encoding * ('t -> 'a option) * ('a -> 't) -> 't case
+type 't case = Case : 'a encoding * ('t -> 'a option) * ('a -> 't) -> 't case
 
 let case encoding fto ffrom =
   Case (encoding, fto, ffrom)
@@ -500,8 +483,7 @@ let union = function
   | [] -> invalid_arg "Json_typed.union"
   | l ->
     Custom
-      (Value_witness,
-       (fun v ->
+      ((fun v ->
           let rec do_cases = function
             | [] -> invalid_arg "Json_typed.union"
             | Case (encoding, fto, _) :: rest ->
@@ -519,20 +501,3 @@ let union = function
        Json_schema.combine
          Json_schema.One_of
          (List.map (fun (Case (encoding, _, _)) -> schema encoding) l))
-
-type 'a value_encoding = ('a, value) encoding
-type 'a document_encoding = ('a, document) encoding
-
-let value_encoding enc =
-  Custom
-    (Value_witness,
-     (fun x -> (construct enc x :> value)),
-     destruct enc,
-     schema enc)
-
-let document_encoding enc =
-  Custom
-    (Document_witness,
-     (fun x -> (construct enc x :> document)),
-     destruct enc,
-     schema enc)

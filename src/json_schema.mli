@@ -187,7 +187,7 @@ val string_specs : string_specs
 (** {2 JSON Serialization} *)
 
 (** Formats a JSON schema as its JSON representation. *)
-val to_json : schema -> [> document ]
+val to_json : schema -> [> value ]
 
 (** Parse a JSON structure as a JSON schema, if possible.
     May throw {!Cannot_parse}. *)
