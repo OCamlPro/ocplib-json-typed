@@ -66,7 +66,7 @@ and array_specs =
     additional_items : element option }
 
 and object_specs =
-  { properties : (string * element * bool) list ;
+  { properties : (string * element * bool * Json_repr.value option) list ;
     pattern_properties : (string * element) list ;
     additional_properties : element option ;
     min_properties : int ;
@@ -129,11 +129,11 @@ let to_json schema =
       begin match kind with
         | Object specs ->
           let required = List.fold_left
-              (fun r (n, _, p) -> if p then `String n :: r else r)
+              (fun r (n, _, p, _) -> if p then `String n :: r else r)
               [] specs.properties in
           let properties =
             List.map
-              (fun (n, elt, _) -> n, format_element elt)
+              (fun (n, elt, _, _) -> n, format_element elt)
               specs.properties in
           set_always "type" (`String "object") @
           set_always "properties" (`O properties) @
@@ -472,7 +472,7 @@ let of_json json =
                 let elt = try parse_element source elt
                   with err -> raise (at_field "properties" @@ at_field n @@ err) in
                 let req = List.mem n required in
-                items ((n, elt, req) :: acc) tl
+                items ((n, elt, req, None) :: acc) tl (* XXX: fixme *)
             in items [] props
           | None -> []
           | Some k -> raise (at_field "properties" @@ unexpected k "object") in
@@ -567,7 +567,7 @@ let check_definitions root definitions =
     begin match kind with
     | Object { properties ; pattern_properties ;
                additional_properties ; schema_dependencies } ->
-      List.iter (fun (_, e, _) -> check e) properties ;
+      List.iter (fun (_, e, _, _) -> check e) properties ;
       List.iter (fun (_, e) -> check e) pattern_properties ;
       List.iter (fun (_, e) -> check e) schema_dependencies ;
       (match additional_properties with Some e -> check e | None -> ())
@@ -622,7 +622,7 @@ let simplify schema =
   let rec collect { kind } = match kind with
     | Object { properties ; pattern_properties ;
                additional_properties ; schema_dependencies } ->
-      List.iter (fun (_, e, _) -> collect e) properties ;
+      List.iter (fun (_, e, _, _) -> collect e) properties ;
       List.iter (fun (_, e) -> collect e) pattern_properties ;
       List.iter (fun (_, e) -> collect e) schema_dependencies ;
       (match additional_properties with Some e -> collect e | None -> ())

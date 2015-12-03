@@ -31,6 +31,64 @@ and value =
   | `String of string
   | `Null ]
 
+type json =
+  [ `Bool of bool
+  | `Assoc of (string * json) list
+  | `Float of float
+  | `Int of int
+  | `Intlit of string
+  | `List of json list
+  | `Null
+  | `String of string
+  | `Tuple of json list
+  | `Variant of string * json option ]
+
+let from_yojson non_basic =
+  (* Delete `Variant, `Tuple and `Intlit *)
+  let rec to_basic non_basic = match non_basic with
+    | `Intlit i -> `String i
+    | `Tuple l -> `List (List.map to_basic l)
+    | `Variant (label, Some x) -> `List [`String label; to_basic x]
+    | `Variant (label, None) -> `String label
+    | `Assoc l -> `Assoc (List.map (fun (key, value) -> (key, to_basic value)) l)
+    | `List l -> `List (List.map to_basic l)
+    | `Int i -> `Int i
+    | `Float f -> `Float f
+    | `String s -> `String s
+    | `Null -> `Null
+    | `Bool b -> `Bool b
+  in
+  (* Rename `Assoc, `Int and `List *)
+  let rec to_value basic = match basic with
+    | `List l -> `A (List.map to_value l)
+    | `Assoc l -> `O (List.map (fun (key, value) -> (key, to_value value)) l)
+    | `Int i -> `Float (float_of_int i)
+    | `Float f -> `Float f
+    | `Null -> `Null
+    | `String s -> `String s
+    | `Bool b -> `Bool b
+  in to_basic non_basic |> to_value
+
+let rec to_yojson json =
+  let rec aux = function
+    | `A values ->
+      `List (List.map aux values)
+    | `O values ->
+      `Assoc (List.map (fun (k, v) -> (k, aux v)) values)
+    | `Float f ->
+      let (fract, intr) = modf f in
+      let (min_intf, max_intf) = (min_int |> float_of_int,
+                                  max_int |> float_of_int) in
+      if fract = 0.0 then
+        if intr >= min_intf && intr <= max_intf
+        then `Int (int_of_float intr)
+        else `Intlit (Printf.sprintf "%.0f" intr)
+      else `Float f
+    | `Bool b -> `Bool b
+    | `String s -> `String s
+    | `Null -> `Null
+  in aux (json :> value)
+
 type path =
   path_item list
 

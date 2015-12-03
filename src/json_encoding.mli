@@ -92,13 +92,13 @@ val option : ('a, [< value ]) encoding -> ('a option, value ) encoding
 type 'a field
 
 (** A required field of a given its type. *)
-val req : string -> ('t, _) encoding -> 't field
+val req : ?title:string -> ?description:string -> string -> ('t, _) encoding -> 't field
 
 (** An optional field of a given type, using an OCaml [option]. *)
-val opt : string -> ('t, _) encoding -> 't option field
+val opt : ?title:string -> ?description:string -> string -> ('t, _) encoding -> 't option field
 
 (** An optional field of a given type, ommited when equal to a default value. *)
-val dft : string -> ('t, _) encoding -> 't -> 't field
+val dft : ?title:string -> ?description:string -> string -> ('t, _) encoding -> 't -> 't field
 
 (** An encoding of an OCaml value by a singleton object. *)
 val obj1 :

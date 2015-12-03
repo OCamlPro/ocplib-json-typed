@@ -91,7 +91,7 @@ and array_specs =
 
 (** Parameters of the [Object] type specifier. *)
 and object_specs =
-  { properties : (string * element * bool) list ;
+  { properties : (string * element * bool * Json_repr.value option) list ;
     (** The names and types of properties, with a flag to indicate if
         they are required ([true]) or optional. *)
     pattern_properties : (string * element) list ;
