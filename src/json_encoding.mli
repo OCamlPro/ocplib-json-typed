@@ -109,43 +109,53 @@ val obj1 :
 
 (** An encoding of an OCaml pair by a JSON object with two fields. *)
 val obj2 :
-  'f1 field ->
-  'f2 field ->
+  'f1 field -> 'f2 field ->
   ('f1 * 'f2) encoding
 
-(** An encoding of an OCaml triplet by a JSON object with three fields. *)
+(** An encoding of an OCaml triple by a JSON object with three fields. *)
 val obj3 :
-  'f1 field ->
-  'f2 field ->
-  'f3 field ->
+  'f1 field -> 'f2 field -> 'f3 field ->
   ('f1 * 'f2 * 'f3) encoding
 
-(** An encoding of an OCaml quadruplet by a JSON object with four fields. *)
+(** An encoding of an OCaml quadruple by a JSON object with four fields. *)
 val obj4 :
-  'f1 field ->
-  'f2 field ->
-  'f3 field ->
-  'f4 field ->
+  'f1 field -> 'f2 field -> 'f3 field -> 'f4 field ->
   ('f1 * 'f2 * 'f3 * 'f4) encoding
 
-(** An encoding of an OCaml quintuplet by a JSON object with five fields. *)
+(** An encoding of an OCaml quintuple by a JSON object with five fields. *)
 val obj5 :
-  'f1 field ->
-  'f2 field ->
-  'f3 field ->
-  'f4 field ->
-  'f5 field ->
+  'f1 field -> 'f2 field -> 'f3 field -> 'f4 field -> 'f5 field ->
   ('f1 * 'f2 * 'f3 * 'f4 * 'f5) encoding
 
-(** An encoding of an OCaml sextuplet by a JSON object with six fields. *)
+(** An encoding of an OCaml sextuple by a JSON object with six fields. *)
 val obj6 :
-  'f1 field ->
-  'f2 field ->
-  'f3 field ->
-  'f4 field ->
-  'f5 field ->
+  'f1 field -> 'f2 field -> 'f3 field -> 'f4 field -> 'f5 field ->
   'f6 field ->
   ('f1 * 'f2 * 'f3 * 'f4 * 'f5 * 'f6) encoding
+
+(** An encoding of an OCaml septuple by a JSON object with seven fields. *)
+val obj7 :
+  'f1 field -> 'f2 field -> 'f3 field -> 'f4 field -> 'f5 field ->
+  'f6 field -> 'f7 field ->
+  ('f1 * 'f2 * 'f3 * 'f4 * 'f5 * 'f6 * 'f7) encoding
+
+(** An encoding of an OCaml octuple by a JSON object with eight fields. *)
+val obj8 :
+  'f1 field -> 'f2 field -> 'f3 field -> 'f4 field -> 'f5 field ->
+  'f6 field -> 'f7 field -> 'f8 field ->
+  ('f1 * 'f2 * 'f3 * 'f4 * 'f5 * 'f6 * 'f7 * 'f8) encoding
+
+(** An encoding of an OCaml nonuple by a JSON object with nine fields. *)
+val obj9 :
+  'f1 field -> 'f2 field -> 'f3 field -> 'f4 field -> 'f5 field ->
+  'f6 field -> 'f7 field -> 'f8 field -> 'f9 field ->
+  ('f1 * 'f2 * 'f3 * 'f4 * 'f5 * 'f6 * 'f7 * 'f8 * 'f9) encoding
+
+(** An encoding of an OCaml decuple by a JSON object with ten fields. *)
+val obj10 :
+  'f1 field -> 'f2 field -> 'f3 field -> 'f4 field -> 'f5 field ->
+  'f6 field -> 'f7 field -> 'f8 field -> 'f9 field -> 'f10 field ->
+  ('f1 * 'f2 * 'f3 * 'f4 * 'f5 * 'f6 * 'f7 * 'f8 * 'f9 * 'f10) encoding
 
 (** Merge two object [encoding]s. For describing heavyweight objects with
     a lot of fields. The ocaml type is a pair of tuples, but the JSON
@@ -153,9 +163,7 @@ val obj6 :
     otherwise a future {!construct}, {!destruct} or {!schema} will fail
     with [Invalid_argument]. *)
 val merge_objs :
-  'o1 encoding ->
-  'o2 encoding ->
-  ('o1 * 'o2) encoding
+  'o1 encoding -> 'o2 encoding -> ('o1 * 'o2) encoding
 
 (** {2 JSON type combinators for arrays} *) (**********************************)
 
@@ -181,43 +189,53 @@ val tup1 :
 
 (** An encoding of an OCaml pair by a JSON array with two cells. *)
 val tup2 :
-  'f1 encoding ->
-  'f2 encoding ->
+  'f1 encoding -> 'f2 encoding ->
   ('f1 * 'f2) encoding
 
-(** An encoding of an OCaml triplet by a JSON array with three cells. *)
+(** An encoding of an OCaml triple by a JSON array with three cells. *)
 val tup3 :
-  'f1 encoding ->
-  'f2 encoding ->
-  'f3 encoding ->
+  'f1 encoding -> 'f2 encoding -> 'f3 encoding ->
   ('f1 * 'f2 * 'f3) encoding
 
-(** An encoding of an OCaml quadruplet by a JSON array with four cells. *)
+(** An encoding of an OCaml quadruple by a JSON array with four cells. *)
 val tup4 :
-  'f1 encoding ->
-  'f2 encoding ->
-  'f3 encoding ->
-  'f4 encoding ->
+  'f1 encoding -> 'f2 encoding -> 'f3 encoding -> 'f4 encoding ->
   ('f1 * 'f2 * 'f3 * 'f4) encoding
 
-(** An encoding of an OCaml quintuplet by a JSON array with five cells. *)
+(** An encoding of an OCaml quintuple by a JSON array with five cells. *)
 val tup5 :
-  'f1 encoding ->
-  'f2 encoding ->
-  'f3 encoding ->
-  'f4 encoding ->
-  'f5 encoding ->
+  'f1 encoding -> 'f2 encoding -> 'f3 encoding -> 'f4 encoding -> 'f5 encoding ->
   ('f1 * 'f2 * 'f3 * 'f4 * 'f5) encoding
 
-(** An encoding of an OCaml sextuplet by a JSON array with six cells. *)
+(** An encoding of an OCaml sextuple by a JSON array with six cells. *)
 val tup6 :
-  'f1 encoding ->
-  'f2 encoding ->
-  'f3 encoding ->
-  'f4 encoding ->
-  'f5 encoding ->
+  'f1 encoding -> 'f2 encoding -> 'f3 encoding -> 'f4 encoding -> 'f5 encoding ->
   'f6 encoding ->
   ('f1 * 'f2 * 'f3 * 'f4 * 'f5 * 'f6) encoding
+
+(** An encoding of an OCaml septuple by a JSON array with seven cells. *)
+val tup7 :
+  'f1 encoding -> 'f2 encoding -> 'f3 encoding -> 'f4 encoding -> 'f5 encoding ->
+  'f6 encoding -> 'f7 encoding ->
+  ('f1 * 'f2 * 'f3 * 'f4 * 'f5 * 'f6 * 'f7) encoding
+
+(** An encoding of an OCaml octuple by a JSON array with eight cells. *)
+val tup8 :
+  'f1 encoding -> 'f2 encoding -> 'f3 encoding -> 'f4 encoding -> 'f5 encoding ->
+  'f6 encoding -> 'f7 encoding -> 'f8 encoding ->
+  ('f1 * 'f2 * 'f3 * 'f4 * 'f5 * 'f6 * 'f7 * 'f8) encoding
+
+(** An encoding of an OCaml nonuple by a JSON array with nine cells. *)
+val tup9 :
+  'f1 encoding -> 'f2 encoding -> 'f3 encoding -> 'f4 encoding -> 'f5 encoding ->
+  'f6 encoding -> 'f7 encoding -> 'f8 encoding -> 'f9 encoding ->
+  ('f1 * 'f2 * 'f3 * 'f4 * 'f5 * 'f6 * 'f7 * 'f8 * 'f9) encoding
+
+(** An encoding of an OCaml decuple by a JSON array with ten cells. *)
+val tup10 :
+  'f1 encoding -> 'f2 encoding -> 'f3 encoding -> 'f4 encoding -> 'f5 encoding ->
+  'f6 encoding -> 'f7 encoding -> 'f8 encoding -> 'f9 encoding -> 'f10 encoding ->
+  ('f1 * 'f2 * 'f3 * 'f4 * 'f5 * 'f6 * 'f7 * 'f8 * 'f9 * 'f10) encoding
 
 (** Merge two tuple [encoding]s. For describing heavyweight arrays with a
     lot of cells. The ocaml type is a pair of tuples, but the JSON

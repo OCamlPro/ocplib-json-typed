@@ -350,6 +350,30 @@ let obj6 f1 f2 f3 f4 f5 f6 =
     ((fun (a, b, c, d, e, f) -> (a, (b, (c, (d, (e, f)))))),
      (fun (a, (b, (c, (d, (e, f))))) -> (a, b, c, d, e, f)),
      Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Objs (Obj f5, Obj f6))))))
+let obj7 f1 f2 f3 f4 f5 f6 f7 =
+  Conv
+    ((fun (a, b, c, d, e, f, g) -> (a, (b, (c, (d, (e, (f, g))))))),
+     (fun (a, (b, (c, (d, (e, (f, g)))))) -> (a, b, c, d, e, f, g)),
+     let rest = Objs (Obj f6, Obj f7) in
+     Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Objs (Obj f5, rest))))))
+let obj8 f1 f2 f3 f4 f5 f6 f7 f8 =
+  Conv
+    ((fun (a, b, c, d, e, f, g, h) -> (a, (b, (c, (d, (e, (f, (g, h)))))))),
+     (fun (a, (b, (c, (d, (e, (f, (g, h))))))) -> (a, b, c, d, e, f, g, h)),
+     let rest = Objs (Obj f6, Objs (Obj f7, Obj f8)) in
+     Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Objs (Obj f5, rest))))))
+let obj9 f1 f2 f3 f4 f5 f6 f7 f8 f9 =
+  Conv
+    ((fun (a, b, c, d, e, f, g, h, i) -> (a, (b, (c, (d, (e, (f, (g, (h, i))))))))),
+     (fun (a, (b, (c, (d, (e, (f, (g, (h, i)))))))) -> (a, b, c, d, e, f, g, h, i)),
+     let rest = Objs (Obj f6, Objs (Obj f7, Objs (Obj f8, Obj f9))) in
+     Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Objs (Obj f5, rest))))))
+let obj10 f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 =
+  Conv
+    ((fun (a, b, c, d, e, f, g, h, i, j) -> (a, (b, (c, (d, (e, (f, (g, (h, (i, j)))))))))),
+     (fun (a, (b, (c, (d, (e, (f, (g, (h, (i, j))))))))) -> (a, b, c, d, e, f, g, h, i, j)),
+     let rest = Objs (Obj f6, Objs (Obj f7, Objs (Obj f8, Objs (Obj f9, Obj f10)))) in
+     Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Objs (Obj f5, rest))))))
 let tup1 f1 = Tup f1
 let tup2 f1 f2 = Tups (Tup f1, Tup f2)
 let tup3 f1 f2 f3 =
@@ -372,6 +396,30 @@ let tup6 f1 f2 f3 f4 f5 f6 =
     ((fun (a, b, c, d, e, f) -> (a, (b, (c, (d, (e, f)))))),
      (fun (a, (b, (c, (d, (e, f))))) -> (a, b, c, d, e, f)),
      Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, Tup f6))))))
+let tup7 f1 f2 f3 f4 f5 f6 f7 =
+  Conv
+    ((fun (a, b, c, d, e, f, g) -> (a, (b, (c, (d, (e, (f, g))))))),
+     (fun (a, (b, (c, (d, (e, (f, g)))))) -> (a, b, c, d, e, f, g)),
+     let rest = Tups (Tup f6, Tup f7) in
+     Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, rest))))))
+let tup8 f1 f2 f3 f4 f5 f6 f7 f8 =
+  Conv
+    ((fun (a, b, c, d, e, f, g, h) -> (a, (b, (c, (d, (e, (f, (g, h)))))))),
+     (fun (a, (b, (c, (d, (e, (f, (g, h))))))) -> (a, b, c, d, e, f, g, h)),
+     let rest = Tups (Tup f6, Tups (Tup f7, Tup f8)) in
+     Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, rest))))))
+let tup9 f1 f2 f3 f4 f5 f6 f7 f8 f9 =
+  Conv
+    ((fun (a, b, c, d, e, f, g, h, i) -> (a, (b, (c, (d, (e, (f, (g, (h, i))))))))),
+     (fun (a, (b, (c, (d, (e, (f, (g, (h, i)))))))) -> (a, b, c, d, e, f, g, h, i)),
+     let rest = Tups (Tup f6, Tups (Tup f7, Tups (Tup f8, Tup f9))) in
+     Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, rest))))))
+let tup10 f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 =
+  Conv
+    ((fun (a, b, c, d, e, f, g, h, i, j) -> (a, (b, (c, (d, (e, (f, (g, (h, (i, j)))))))))),
+     (fun (a, (b, (c, (d, (e, (f, (g, (h, (i, j))))))))) -> (a, b, c, d, e, f, g, h, i, j)),
+     let rest = Tups (Tup f6, Tups (Tup f7, Tups (Tup f8, Tups (Tup f9, Tup f10)))) in
+     Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, rest))))))
 
 let custom w r ~schema = Custom (w, r, schema)
 let describe ?title ?description t = Describe (title, description, t)
