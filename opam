@@ -3,10 +3,10 @@ name: "ocplib-json-typed"
 version: "0.1"
 maintainer: "Benjamin Canou <benjamin@ocamlpro.com>"
 authors: "Benjamin Canou <benjamin@ocamlpro.com>"
-homepage: "https://github.com/klakplok/ocplib-json-typed"
-bug-reports: "https://github.com/klakplok/ocplib-json-typed/issues"
+homepage: "https://github.com/ocamlpro/ocplib-json-typed"
+bug-reports: "https://github.com/ocamlpro/ocplib-json-typed/issues"
 license: "LGPLv3 w/ linking exception"
-dev-repo: "https://github.com/klakplok/ocplib-json-typed.git"
+dev-repo: "https://github.com/ocamlpro/ocplib-json-typed.git"
 build: [
   [make]
 ]
