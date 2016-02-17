@@ -147,7 +147,7 @@ let construct enc v =
         (fun v -> `O [ n, w v ])
       | Obj (Dft (n, t, d)) ->
         let w v = (construct t v :> value) in
-        (fun v -> `O (if v = d then [ n, w v ] else []))
+        (fun v -> `O (if v <> d then [ n, w v ] else []))
       | Obj (Opt (n, t)) ->
         let w v = (construct t v :> value) in
         (function None -> `O [] | Some v -> `O [ n, w v ])
