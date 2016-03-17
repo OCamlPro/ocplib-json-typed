@@ -606,7 +606,7 @@ let root { root } =
   root
 
 let update root sch =
-  let ids = check_definitions sch.root sch.definitions in
+  let ids = check_definitions root sch.definitions in
   { sch with root ; ids }
 
 let any =
