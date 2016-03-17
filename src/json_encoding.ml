@@ -304,7 +304,8 @@ let schema encoding =
       | Objs _ as o -> element (Object { object_specs with properties = object_schema o })
       | Tup _ as t -> element (Array (array_schema t, array_specs))
       | Tups _ as t -> element (Array (array_schema t, array_specs)) in
-  update (schema encoding) !sch
+  let schema = schema encoding in
+  update schema !sch
 
 (*-- utility wrappers over the GADT ------------------------------------------*)
 
