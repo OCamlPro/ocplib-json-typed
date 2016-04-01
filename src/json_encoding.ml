@@ -191,33 +191,26 @@ let rec destruct
                  raise (Cannot_destruct (`Index i :: path, err)))
             (Array.of_list cells)
         | k -> raise @@ unexpected k "array")
-    | Obj (Req (n, t)) ->
+    | Obj _  as t ->
+      let d = destruct_obj t in
       (function
         | `O fields ->
-          (try destruct t (List.assoc n fields) with
-           | Not_found ->
-             raise (Cannot_destruct ([], Missing_field n))
-           | Cannot_destruct (path, err) ->
-             raise (Cannot_destruct (`Field n :: path, err)))
+          let r, rest = d fields in
+          begin match rest with
+            | [] -> r
+            | (field, _) :: _ -> raise @@ Unexpected_field field
+          end
         | k -> raise @@ unexpected k "object")
-    | Obj (Opt (n, t)) ->
+    | Objs _ as t ->
+      let d = destruct_obj t in
       (function
         | `O fields ->
-          (try Some (destruct t (List.assoc n fields)) with
-           | Not_found -> None
-           | Cannot_destruct (path, err) ->
-             raise (Cannot_destruct (`Field n :: path, err)))
+          let r, rest = d fields in
+          begin match rest with
+            | [] -> r
+            | (field, _) :: _ -> raise @@ Unexpected_field field
+          end
         | k -> raise @@ unexpected k "object")
-    | Obj (Dft (n, t, d)) ->
-      (function
-        | `O fields ->
-          (try destruct t (List.assoc n fields) with
-           | Not_found -> d
-           | Cannot_destruct (path, err) ->
-             raise (Cannot_destruct (`Field n :: path, err)))
-        | k -> raise @@ unexpected k "object")
-    | Objs (o1, o2) ->
-      (fun j -> destruct o1 j, destruct o2 j)
     | Tup _ as t ->
       let r, i = destruct_tup 0 t in
       (function
@@ -250,6 +243,50 @@ and destruct_tup
       let r2, i = destruct_tup i t2 in
       (fun arr -> r1 arr, r2 arr), i
     | _ -> invalid_arg "Json_typed.destruct: consequence of bad merge_tups"
+and destruct_obj
+  : type t. t encoding -> (string * value) list -> t * (string * value) list
+  = fun t ->
+    let rec assoc acc n = function
+      | [] -> raise Not_found
+      | (f, v) :: rest when n = f -> v, acc @ rest
+      | oth :: rest -> assoc (oth :: acc) n rest in
+    match t with
+    | Obj (Req (n, t)) ->
+      (fun fields ->
+         try
+           let v, rest = assoc [] n fields in
+           destruct t v, rest
+         with
+         | Not_found ->
+           raise (Cannot_destruct ([], Missing_field n))
+         | Cannot_destruct (path, err) ->
+           raise (Cannot_destruct (`Field n :: path, err)))
+    | Obj (Opt (n, t)) ->
+      (fun fields ->
+         try
+           let v, rest = assoc [] n fields in
+           Some (destruct t v), rest
+         with
+         | Not_found -> None, fields
+         | Cannot_destruct (path, err) ->
+           raise (Cannot_destruct (`Field n :: path, err)))
+    | Obj (Dft (n, t, d)) ->
+      (fun fields ->
+         try
+           let v, rest = assoc [] n fields in
+           destruct t v, rest
+         with
+         | Not_found -> d, fields
+         | Cannot_destruct (path, err) ->
+           raise (Cannot_destruct (`Field n :: path, err)))
+    | Objs (o1, o2) ->
+      let d1 = destruct_obj o1 in
+      let d2 = destruct_obj o2 in
+      (fun fields ->
+         let r1, rest = d1 fields in
+         let r2, rest = d2 rest in
+         (r1, r2), rest)
+    | _ -> invalid_arg "Json_typed.destruct: consequence of bad merge_objs"
 
 let destruct t =
   let d = destruct t in
