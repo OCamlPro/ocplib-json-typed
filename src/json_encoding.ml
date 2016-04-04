@@ -541,12 +541,30 @@ let any_schema =
      Json_schema.self)
 
 let merge_tups t1 t2 =
-  Tups (t1, t2)
+  let rec is_tup : type t. t encoding -> bool = function
+    | Tup _ -> true
+    | Tups _ (* by construction *) -> true
+    | Conv (_, _, t) -> is_tup t
+    | _ -> false in
+  if is_tup t1 && is_tup t2 then
+    Tups (t1, t2)
+  else
+    invalid_arg "Json_encoding.merge_tups"
+
 let list t =
   Conv (Array.of_list, Array.to_list, Array t)
 
 let merge_objs o1 o2 =
-  Objs (o1, o2)
+  let rec is_obj : type t. t encoding -> bool = function
+    | Obj _ -> true
+    | Objs _ (* by construction *) -> true
+    | Conv (_, _, t) -> is_obj t
+    | _ -> false in
+  if is_obj o1 && is_obj o2 then
+    Objs (o1, o2)
+  else
+    invalid_arg "Json_encoding.merge_objs"
+
 let empty =
   Custom
     ((fun () -> `O []),
