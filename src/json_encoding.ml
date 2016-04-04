@@ -242,7 +242,7 @@ and destruct_tup
       let r1, i = destruct_tup i t1 in
       let r2, i = destruct_tup i t2 in
       (fun arr -> r1 arr, r2 arr), i
-    | _ -> invalid_arg "Json_typed.destruct: consequence of bad merge_tups"
+    | _ -> invalid_arg "Json_encoding.destruct: consequence of bad merge_tups"
 and destruct_obj
   : type t. t encoding -> (string * value) list -> t * (string * value) list
   = fun t ->
@@ -286,7 +286,7 @@ and destruct_obj
          let r1, rest = d1 fields in
          let r2, rest = d2 rest in
          (r1, r2), rest)
-    | _ -> invalid_arg "Json_typed.destruct: consequence of bad merge_objs"
+    | _ -> invalid_arg "Json_encoding.destruct: consequence of bad merge_objs"
 
 let destruct t =
   let d = destruct t in
@@ -303,14 +303,14 @@ let schema encoding =
       | Obj (Opt (n, t)) -> [ n, schema t, false, None ]
       | Obj (Dft (n, t, d)) -> [ n, schema t, false, Some (construct t d :> value)]
       | Objs (o1, o2) -> object_schema o1 @ object_schema o2
-      | _ -> invalid_arg "Json_typed.schema: consequence of bad merge_objs"
+      | _ -> invalid_arg "Json_encoding.schema: consequence of bad merge_objs"
   and array_schema
     : type t. t encoding -> element list
     = function
       | Conv (_, _, o) -> array_schema o
       | Tup t -> [ schema t ]
       | Tups (t1, t2) -> array_schema t1 @ array_schema t2
-      | _ -> invalid_arg "Json_typed.schema: consequence of bad merge_tups"
+      | _ -> invalid_arg "Json_encoding.schema: consequence of bad merge_tups"
   and schema
     : type t. t encoding -> element
     = function
@@ -467,7 +467,7 @@ let string_enum cases =
   let rcases = List.map (fun (s, c) -> (c, s)) cases in
   conv
     (fun v -> try List.assoc v rcases with Not_found ->
-       invalid_arg "Json_typed.string_enum")
+       invalid_arg "Json_encoding.string_enum")
     (fun s ->
        (try List.assoc s cases with Not_found ->
          let rec orpat ppf = function
@@ -566,12 +566,12 @@ let case encoding fto ffrom =
   Case (encoding, fto, ffrom)
 
 let union = function
-  | [] -> invalid_arg "Json_typed.union"
+  | [] -> invalid_arg "Json_encoding.union"
   | l ->
     Custom
       ((fun v ->
           let rec do_cases = function
-            | [] -> invalid_arg "Json_typed.union"
+            | [] -> invalid_arg "Json_encoding.union"
             | Case (encoding, fto, _) :: rest ->
               match fto v with
               | Some v -> (construct encoding v :> value)
