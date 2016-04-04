@@ -242,6 +242,9 @@ and destruct_tup
       let r1, i = destruct_tup i t1 in
       let r2, i = destruct_tup i t2 in
       (fun arr -> r1 arr, r2 arr), i
+    | Conv (ffrom, fto, t) ->
+      let r, i = destruct_tup i t in
+      (fun arr -> fto (r arr)), i
     | _ -> invalid_arg "Json_encoding.destruct: consequence of bad merge_tups"
 and destruct_obj
   : type t. t encoding -> (string * value) list -> t * (string * value) list
@@ -286,6 +289,11 @@ and destruct_obj
          let r1, rest = d1 fields in
          let r2, rest = d2 rest in
          (r1, r2), rest)
+    | Conv (_, fto, t) ->
+      let d = destruct_obj t in
+      (fun fields ->
+         let r, rest = d fields in
+         fto r, rest)
     | _ -> invalid_arg "Json_encoding.destruct: consequence of bad merge_objs"
 
 let destruct t =
