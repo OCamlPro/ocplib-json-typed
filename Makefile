@@ -1,4 +1,4 @@
-MODULES = json_repr json_schema json_encoding
+MODULES = json_repr json_query json_schema json_encoding
 ML = $(patsubst %, src/%.ml, $(MODULES))
 MLI = $(patsubst %, src/%.mli, $(MODULES))
 CMX = $(patsubst %, src/%.cmx, $(MODULES))
