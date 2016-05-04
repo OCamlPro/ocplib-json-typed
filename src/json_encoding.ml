@@ -46,6 +46,8 @@ module Make (Repr : Json_repr.Repr) = struct
   (* intermediate internal type without the polymorphic variant constraint *)
   type _ encoding =
     | Null : unit encoding
+    | Empty : unit encoding
+    | Ignore : unit encoding
     | Int : int encoding
     | Bool : bool encoding
     | String : string encoding
@@ -72,6 +74,8 @@ module Make (Repr : Json_repr.Repr) = struct
       : type t. t encoding -> t -> Repr.value
       = function
         | Null -> (fun () -> Repr.repr `Null)
+        | Empty -> (fun () -> Repr.repr (`O []))
+        | Ignore -> (fun () -> Repr.repr (`O []))
         | Int -> (fun (i : t) -> Repr.repr (`Float (float  i)))
         | Bool -> (fun (b : t) -> Repr.repr (`Bool b))
         | String -> (fun s -> Repr.repr (`String s))
@@ -98,6 +102,7 @@ module Make (Repr : Json_repr.Repr) = struct
           (function (v1, v2) ->
            match Repr.view (w1 v1), Repr.view (w2 v2) with
            | `O l1, `O l2 -> Repr.repr (`O (l1 @ l2))
+           | `Null, `Null
            | _ -> invalid_arg "Json_encoding.construct: consequence of bad merge_objs")
         | Tup t ->
           let w v = construct t v in
@@ -115,6 +120,11 @@ module Make (Repr : Json_repr.Repr) = struct
     : type t. t encoding -> (Repr.value -> t)
     = function
       | Null -> (fun v -> match Repr.view v with `Null -> () | k -> raise (unexpected k "null"))
+      | Empty -> (fun v -> match Repr.view v with
+          | `O [] -> ()
+          | `O [ f, _] -> raise (Cannot_destruct ([], Unexpected_field f))
+          | k -> raise @@ unexpected k "an empty object")
+      | Ignore -> (fun v -> match Repr.view v with _ -> ())
       | Int -> (fun v -> match Repr.view v with `Float f -> int_of_float f | k -> raise (unexpected k "number"))
       | Bool -> (fun v -> match Repr.view v with `Bool b -> (b : t) | k -> raise (unexpected k "boolean"))
       | String -> (fun v -> match Repr.view v with `String s -> s | k -> raise (unexpected k "string"))
@@ -136,17 +146,17 @@ module Make (Repr : Json_repr.Repr) = struct
         let d = destruct_obj t in
         (fun v -> match Repr.view v with
           | `O fields ->
-            let r, rest = d fields in
+            let r, rest, ign = d fields in
             begin match rest with
-              | [] -> r
-              | (field, _) :: _ -> raise @@ Unexpected_field field
+              | (field, _) :: _ when not ign -> raise @@ Unexpected_field field
+              | _ -> r
             end
           | k -> raise @@ unexpected k "object")
       | Objs _ as t ->
         let d = destruct_obj t in
         (fun v -> match Repr.view v with
           | `O fields ->
-            let r, rest = d fields in
+            let r, rest, ign = d fields in
             begin match rest with
               | [] -> r
               | (field, _) :: _ -> raise @@ Unexpected_field field
@@ -188,18 +198,20 @@ module Make (Repr : Json_repr.Repr) = struct
         (fun arr -> fto (r arr)), i
       | _ -> invalid_arg "Json_encoding.destruct: consequence of bad merge_tups"
   and destruct_obj
-    : type t. t encoding -> (string * Repr.value) list -> t * (string * Repr.value) list
+    : type t. t encoding -> (string * Repr.value) list -> t * (string * Repr.value) list * bool
     = fun t ->
       let rec assoc acc n = function
         | [] -> raise Not_found
         | (f, v) :: rest when n = f -> v, acc @ rest
         | oth :: rest -> assoc (oth :: acc) n rest in
       match t with
+      | Empty -> (fun fields -> (), fields, false)
+      | Ignore -> (fun fields -> (), fields, true)
       | Obj (Req (n, t)) ->
         (fun fields ->
            try
              let v, rest = assoc [] n fields in
-             destruct t v, rest
+             destruct t v, rest, false
            with
            | Not_found ->
              raise (Cannot_destruct ([], Missing_field n))
@@ -209,32 +221,32 @@ module Make (Repr : Json_repr.Repr) = struct
         (fun fields ->
            try
              let v, rest = assoc [] n fields in
-             Some (destruct t v), rest
+             Some (destruct t v), rest, false
            with
-           | Not_found -> None, fields
+           | Not_found -> None, fields, false
            | Cannot_destruct (path, err) ->
              raise (Cannot_destruct (`Field n :: path, err)))
       | Obj (Dft (n, t, d)) ->
         (fun fields ->
            try
              let v, rest = assoc [] n fields in
-             destruct t v, rest
+             destruct t v, rest, false
            with
-           | Not_found -> d, fields
+           | Not_found -> d, fields, false
            | Cannot_destruct (path, err) ->
              raise (Cannot_destruct (`Field n :: path, err)))
       | Objs (o1, o2) ->
         let d1 = destruct_obj o1 in
         let d2 = destruct_obj o2 in
         (fun fields ->
-           let r1, rest = d1 fields in
-           let r2, rest = d2 rest in
-           (r1, r2), rest)
+           let r1, rest, ign1 = d1 fields in
+           let r2, rest, ign2 = d2 rest in
+           (r1, r2), rest, ign1 || ign2)
       | Conv (_, fto, t) ->
         let d = destruct_obj t in
         (fun fields ->
-           let r, rest = d fields in
-           fto r, rest)
+           let r, rest, ign = d fields in
+           fto r, rest, ign)
       | _ -> invalid_arg "Json_encoding.destruct: consequence of bad merge_objs"
 
   let destruct t =
@@ -264,6 +276,8 @@ module Make (Repr : Json_repr.Repr) = struct
       : type t. t encoding -> element
       = function
         | Null -> element Null
+        | Empty -> element (Object { object_specs with additional_properties = None })
+        | Ignore -> element Any
         | Int -> element Integer
         | Bool -> element Boolean
         | String -> element (String string_specs)
@@ -500,6 +514,8 @@ module Make (Repr : Json_repr.Repr) = struct
       | Obj _ -> true
       | Objs _ (* by construction *) -> true
       | Conv (_, _, t) -> is_obj t
+      | Empty -> true
+      | Ignore -> true
       | _ -> false in
     if is_obj o1 && is_obj o2 then
       Objs (o1, o2)
@@ -507,25 +523,10 @@ module Make (Repr : Json_repr.Repr) = struct
       invalid_arg "Json_encoding.merge_objs"
 
   let empty =
-    Custom
-      ((fun () -> Repr.repr (`O [])),
-       (fun v -> match Repr.view v with
-         | `O [] -> ()
-         | `O [ f, _] -> raise (Cannot_destruct ([], Unexpected_field f))
-         | k -> raise @@ unexpected k "an empty object"),
-       Json_schema.(create (element (Object { properties = [] ;
-                                              pattern_properties = [] ;
-                                              additional_properties = None ;
-                                              min_properties = 0 ;
-                                              max_properties = Some 0 ;
-                                              schema_dependencies = [] ;
-                                              property_dependencies = [] }))))
+    Empty
+
   let unit =
-    Custom
-      ((fun () -> Repr.repr (`O [])),
-       (fun v -> match Repr.view v with
-         | _ -> ()),
-       Json_schema.any)
+    Ignore
 
   type 't case = Case : 'a encoding * ('t -> 'a option) * ('a -> 't) -> 't case
 
