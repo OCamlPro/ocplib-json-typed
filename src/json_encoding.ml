@@ -617,4 +617,4 @@ let rec print_error ?print_unknown ppf = function
   | exn ->
     Json_schema.print_error ?print_unknown ppf exn
 
-include Make (Json_repr.Ezjsonm)
+include Make (Json_repr)
