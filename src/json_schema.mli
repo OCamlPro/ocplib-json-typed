@@ -219,4 +219,4 @@ val print_error
   Format.formatter -> exn -> unit
 
 (** By default, use {!Json_repr.Ezjsonm} *)
-include module type of Make (Json_repr.Ezjsonm)
+include module type of Make (Json_repr)

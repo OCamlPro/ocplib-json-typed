@@ -720,4 +720,4 @@ module Make (Repr : Json_repr.Repr) = struct
       max_length = None }
 end
 
-include Make (Json_repr.Ezjsonm)
+include Make (Json_repr)
