@@ -284,7 +284,12 @@ module Make (Repr : Json_repr.Repr) = struct
         | Bool -> element Boolean
         | String -> element (String string_specs)
         | Float -> element Number
-        | Describe (title, description, t) ->
+        | Describe (None, None, t) -> schema t
+        | Describe (Some _ as title, None, t) ->
+          { (schema t) with title }
+        | Describe (None, (Some _ as description), t) ->
+          { (schema t) with description }
+        | Describe (Some _ as title, (Some _ as description), t) ->
           { (schema t) with title ; description }
         | Custom (_, _, s) ->
           sch := fst (merge_definitions (!sch, s)) ;
