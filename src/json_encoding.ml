@@ -260,6 +260,8 @@ module Make (Repr : Json_repr.Repr) = struct
       : type t. t encoding -> (string * element * bool * Repr.value option) list
       = function
         | Conv (_, _, o) -> object_schema o
+        | Empty -> []
+        | Ignore -> []
         | Obj (Req (n, t)) -> [ n, schema t, true, None ]
         | Obj (Opt (n, t)) -> [ n, schema t, false, None ]
         | Obj (Dft (n, t, d)) -> [ n, schema t, false, Some (construct t d)]
