@@ -260,6 +260,8 @@ module Make (Repr : Json_repr.Repr) = struct
       : type t. t encoding -> (string * element * bool * Repr.value option) list
       = function
         | Conv (_, _, o) -> object_schema o
+        | Empty -> []
+        | Ignore -> []
         | Obj (Req (n, t)) -> [ n, schema t, true, None ]
         | Obj (Opt (n, t)) -> [ n, schema t, false, None ]
         | Obj (Dft (n, t, d)) -> [ n, schema t, false, Some (construct t d)]
@@ -282,7 +284,12 @@ module Make (Repr : Json_repr.Repr) = struct
         | Bool -> element Boolean
         | String -> element (String string_specs)
         | Float -> element Number
-        | Describe (title, description, t) ->
+        | Describe (None, None, t) -> schema t
+        | Describe (Some _ as title, None, t) ->
+          { (schema t) with title }
+        | Describe (None, (Some _ as description), t) ->
+          { (schema t) with description }
+        | Describe (Some _ as title, (Some _ as description), t) ->
           { (schema t) with title ; description }
         | Custom (_, _, s) ->
           sch := fst (merge_definitions (!sch, s)) ;
