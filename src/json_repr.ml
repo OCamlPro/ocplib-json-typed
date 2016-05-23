@@ -81,6 +81,18 @@ type yojson = Yojson.value
 
 include Ezjsonm
 
+let convert
+  : type tt tf.
+    (module Repr with type value = tf) ->
+    (module Repr with type value = tt) ->
+    tf -> tt
+  = fun (module Repr_f) (module Repr_t) v ->
+    let rec conv v = match Repr_f.view v with
+      | `Float _ | `Bool _ | `String _ | `Null as v -> Repr_t.repr v
+      | `A values -> Repr_t.repr (`A (List.map conv values))
+      | `O values -> Repr_t.repr (`O (List.map (fun (k, v) -> (k, conv v)) values)) in
+    conv v
+
 let from_yojson non_basic =
   (* Delete `Variant, `Tuple and `Intlit *)
   let rec to_basic non_basic = match non_basic with
@@ -125,3 +137,12 @@ let rec to_yojson json =
     | `String s -> `String s
     | `Null -> `Null
   in aux (json :> value)
+
+type any = Value_with_repr: (module Repr with type value = 'a) * 'a -> any
+
+let from_any :
+  type tt. (module Repr with type value = tt) -> any -> tt =
+  fun repr_t (Value_with_repr (repr_f, v)) -> convert repr_f repr_t v
+
+let to_any repr v =
+  Value_with_repr (repr, v)

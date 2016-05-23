@@ -25,49 +25,51 @@ exception Unexpected_field of string
 exception Bad_schema of exn
 exception Cannot_destruct of (Json_query.path * exn)
 
+(*-- types and errors --------------------------------------------------------*)
+
+let unexpected kind expected =
+  let kind =match kind with
+    | `O [] -> "empty object"
+    | `A [] -> "empty array"
+    | `O _ -> "object"
+    | `A _ -> "array"
+    | `Null -> "null"
+    | `String _ -> "string"
+    | `Float _ -> "number"
+    | `Bool _ -> "boolean" in
+  Cannot_destruct ([], Unexpected (kind, expected))
+
+type 't custom =
+  { write : 'rt. (module Json_repr.Repr with type value = 'rt) -> 't -> 'rt ;
+    read : 'rf. (module Json_repr.Repr with type value = 'rf) -> 'rf -> 't }
+
+(* intermediate internal type without the polymorphic variant constraint *)
+type _ encoding =
+  | Null : unit encoding
+  | Empty : unit encoding
+  | Ignore : unit encoding
+  | Int : int encoding
+  | Bool : bool encoding
+  | String : string encoding
+  | Float : float encoding
+  | Array : 'a encoding -> 'a array encoding
+  | Obj : 'a field -> 'a encoding
+  | Objs : 'a encoding * 'b encoding -> ('a * 'b) encoding
+  | Tup : 'a encoding -> 'a encoding
+  | Tups : 'a encoding * 'b encoding -> ('a * 'b) encoding
+  | Custom : 't custom * Json_schema.schema -> 't encoding
+  | Conv : ('a -> 'b) * ('b -> 'a) * 'b encoding * Json_schema.schema option -> 'a encoding
+  | Describe : string option * string option * 'a encoding -> 'a encoding
+  | Mu : string * ('a encoding -> 'a encoding) -> 'a encoding
+
+and _ field =
+  | Req : string * 'a encoding -> 'a field
+  | Opt : string * 'a encoding -> 'a option field
+  | Dft : string * 'a encoding * 'a -> 'a field
+
+(*-- construct / destruct / schema over the nain GADT forms ------------------*)
+
 module Make (Repr : Json_repr.Repr) = struct
-
-  module Json_schema = Json_schema.Make (Repr)
-
-  (*-- types and errors --------------------------------------------------------*)
-
-  let unexpected kind expected =
-    let kind =match kind with
-      | `O [] -> "empty object"
-      | `A [] -> "empty array"
-      | `O _ -> "object"
-      | `A _ -> "array"
-      | `Null -> "null"
-      | `String _ -> "string"
-      | `Float _ -> "number"
-      | `Bool _ -> "boolean" in
-    Cannot_destruct ([], Unexpected (kind, expected))
-
-  (* intermediate internal type without the polymorphic variant constraint *)
-  type _ encoding =
-    | Null : unit encoding
-    | Empty : unit encoding
-    | Ignore : unit encoding
-    | Int : int encoding
-    | Bool : bool encoding
-    | String : string encoding
-    | Float : float encoding
-    | Array : 'a encoding -> 'a array encoding
-    | Obj : 'a field -> 'a encoding
-    | Objs : 'a encoding * 'b encoding -> ('a * 'b) encoding
-    | Tup : 'a encoding -> 'a encoding
-    | Tups : 'a encoding * 'b encoding -> ('a * 'b) encoding
-    | Custom : ('t -> Repr.value) * (Repr.value -> 't) * Json_schema.schema -> 't encoding
-    | Conv : ('a -> 'b) * ('b -> 'a) * 'b encoding -> 'a encoding
-    | Describe : string option * string option * 'a encoding -> 'a encoding
-    | Mu : string * ('a encoding -> 'a encoding) -> 'a encoding
-
-  and _ field =
-    | Req : string * 'a encoding -> 'a field
-    | Opt : string * 'a encoding -> 'a option field
-    | Dft : string * 'a encoding * 'a -> 'a field
-
-  (*-- construct / destruct / schema over the nain GADT forms ------------------*)
 
   let construct enc v =
     let rec construct
@@ -81,8 +83,8 @@ module Make (Repr : Json_repr.Repr) = struct
         | String -> (fun s -> Repr.repr (`String s))
         | Float -> (fun f -> Repr.repr (`Float f))
         | Describe (_, _, t) -> construct t
-        | Custom (w, _, _) -> (fun (j : t) -> w j)
-        | Conv (ffrom, _, t) -> (fun v -> construct t (ffrom v))
+        | Custom ({ write }, _) -> (fun (j : t) -> write (module Repr) j)
+        | Conv (ffrom, _, t, _) -> (fun v -> construct t (ffrom v))
         | Mu (name, self) -> construct (self (Mu (name, self)))
         | Array t ->
           let w v = construct t v in
@@ -130,58 +132,58 @@ module Make (Repr : Json_repr.Repr) = struct
       | String -> (fun v -> match Repr.view v with `String s -> s | k -> raise (unexpected k "string"))
       | Float -> (fun v -> match Repr.view v with `Float f -> f | k -> raise (unexpected k "float"))
       | Describe (_, _, t) -> destruct t
-      | Custom (_, r, _) -> r
-      | Conv (_, fto, t) -> (fun v -> fto (destruct t v))
+      | Custom ({ read }, _) -> read (module Repr)
+      | Conv (_, fto, t, _) -> (fun v -> fto (destruct t v))
       | Mu (name, self) -> destruct (self (Mu (name, self)))
       | Array t ->
         (fun v -> match Repr.view v with
-          | `A cells ->
-            Array.mapi
-              (fun i cell ->
-                 try destruct t cell with Cannot_destruct (path, err) ->
-                   raise (Cannot_destruct (`Index i :: path, err)))
-              (Array.of_list cells)
-          | k -> raise @@ unexpected k "array")
+           | `A cells ->
+             Array.mapi
+               (fun i cell ->
+                  try destruct t cell with Cannot_destruct (path, err) ->
+                    raise (Cannot_destruct (`Index i :: path, err)))
+               (Array.of_list cells)
+           | k -> raise @@ unexpected k "array")
       | Obj _  as t ->
         let d = destruct_obj t in
         (fun v -> match Repr.view v with
-          | `O fields ->
-            let r, rest, ign = d fields in
-            begin match rest with
-              | (field, _) :: _ when not ign -> raise @@ Unexpected_field field
-              | _ -> r
-            end
-          | k -> raise @@ unexpected k "object")
+           | `O fields ->
+             let r, rest, ign = d fields in
+             begin match rest with
+               | (field, _) :: _ when not ign -> raise @@ Unexpected_field field
+               | _ -> r
+             end
+           | k -> raise @@ unexpected k "object")
       | Objs _ as t ->
         let d = destruct_obj t in
         (fun v -> match Repr.view v with
-          | `O fields ->
-            let r, rest, ign = d fields in
-            begin match rest with
-              | [] -> r
-              | (field, _) :: _ -> raise @@ Unexpected_field field
-            end
-          | k -> raise @@ unexpected k "object")
+           | `O fields ->
+             let r, rest, ign = d fields in
+             begin match rest with
+               | [] -> r
+               | (field, _) :: _ -> raise @@ Unexpected_field field
+             end
+           | k -> raise @@ unexpected k "object")
       | Tup _ as t ->
         let r, i = destruct_tup 0 t in
         (fun v -> match Repr.view v with
-          | `A cells ->
-            let cells = Array.of_list cells in
-            let len = Array.length cells in
-            if i <> Array.length cells then
-              raise (Cannot_destruct ([], Bad_array_size (len, i)))
-            else r cells
-          | k -> raise @@ unexpected k "array")
+           | `A cells ->
+             let cells = Array.of_list cells in
+             let len = Array.length cells in
+             if i <> Array.length cells then
+               raise (Cannot_destruct ([], Bad_array_size (len, i)))
+             else r cells
+           | k -> raise @@ unexpected k "array")
       | Tups _ as t ->
         let r, i = destruct_tup 0 t in
         (fun v -> match Repr.view v with
-          | `A cells ->
-            let cells = Array.of_list cells in
-            let len = Array.length cells in
-            if i <> Array.length cells then
-              raise (Cannot_destruct ([], Bad_array_size (len, i)))
-            else r cells
-          | k -> raise @@ unexpected k "array")
+           | `A cells ->
+             let cells = Array.of_list cells in
+             let len = Array.length cells in
+             if i <> Array.length cells then
+               raise (Cannot_destruct ([], Bad_array_size (len, i)))
+             else r cells
+           | k -> raise @@ unexpected k "array")
   and destruct_tup
     : type t. int -> t encoding -> (Repr.value array -> t) * int
     = fun i t -> match t with
@@ -193,7 +195,7 @@ module Make (Repr : Json_repr.Repr) = struct
         let r1, i = destruct_tup i t1 in
         let r2, i = destruct_tup i t2 in
         (fun arr -> r1 arr, r2 arr), i
-      | Conv (ffrom, fto, t) ->
+      | Conv (ffrom, fto, t, _) ->
         let r, i = destruct_tup i t in
         (fun arr -> fto (r arr)), i
       | _ -> invalid_arg "Json_encoding.destruct: consequence of bad merge_tups"
@@ -242,327 +244,351 @@ module Make (Repr : Json_repr.Repr) = struct
            let r1, rest, ign1 = d1 fields in
            let r2, rest, ign2 = d2 rest in
            (r1, r2), rest, ign1 || ign2)
-      | Conv (_, fto, t) ->
+      | Conv (_, fto, t, _) ->
         let d = destruct_obj t in
         (fun fields ->
            let r, rest, ign = d fields in
            fto r, rest, ign)
       | _ -> invalid_arg "Json_encoding.destruct: consequence of bad merge_objs"
 
-  let destruct t =
-    let d = destruct t in
-    fun j -> d j
-
-  let schema encoding =
-    let open Json_schema in
-    let sch = ref any in
-    let rec object_schema
-      : type t. t encoding -> (string * element * bool * Repr.value option) list
-      = function
-        | Conv (_, _, o) -> object_schema o
-        | Empty -> []
-        | Ignore -> []
-        | Obj (Req (n, t)) -> [ n, schema t, true, None ]
-        | Obj (Opt (n, t)) -> [ n, schema t, false, None ]
-        | Obj (Dft (n, t, d)) -> [ n, schema t, false, Some (construct t d)]
-        | Objs (o1, o2) -> object_schema o1 @ object_schema o2
-        | _ -> invalid_arg "Json_encoding.schema: consequence of bad merge_objs"
-    and array_schema
-      : type t. t encoding -> element list
-      = function
-        | Conv (_, _, o) -> array_schema o
-        | Tup t -> [ schema t ]
-        | Tups (t1, t2) -> array_schema t1 @ array_schema t2
-        | _ -> invalid_arg "Json_encoding.schema: consequence of bad merge_tups"
-    and schema
-      : type t. t encoding -> element
-      = function
-        | Null -> element Null
-        | Empty -> element (Object { object_specs with additional_properties = None })
-        | Ignore -> element Any
-        | Int -> element Integer
-        | Bool -> element Boolean
-        | String -> element (String string_specs)
-        | Float -> element Number
-        | Describe (None, None, t) -> schema t
-        | Describe (Some _ as title, None, t) ->
-          { (schema t) with title }
-        | Describe (None, (Some _ as description), t) ->
-          { (schema t) with description }
-        | Describe (Some _ as title, (Some _ as description), t) ->
-          { (schema t) with title ; description }
-        | Custom (_, _, s) ->
-          sch := fst (merge_definitions (!sch, s)) ;
-          root s
-        | Conv (_, _, t) -> schema t
-        | Mu (name, f) ->
-          let fake_schema =
-            let sch, elt = add_definition name (element Dummy) any in
-            update elt sch in
-          let fake_self =
-            Custom ((fun _ -> assert false),
-                    (fun _ -> assert false),
-                    fake_schema) in
-          let nsch, def = add_definition name (schema (f fake_self)) !sch in
-          sch := nsch ; def
-        | Array t ->
-          element (Monomorphic_array (schema t, array_specs))
-        | Obj _ as o -> element (Object { object_specs with properties = object_schema o })
-        | Objs _ as o -> element (Object { object_specs with properties = object_schema o })
-        | Tup _ as t -> element (Array (array_schema t, array_specs))
-        | Tups _ as t -> element (Array (array_schema t, array_specs)) in
-    let schema = schema encoding in
-    update schema !sch
-
-  (*-- utility wrappers over the GADT ------------------------------------------*)
-
-  let req ?title ?description n t = Req (n, Describe (title, description, t))
-  let opt ?title ?description n t = Opt (n, Describe (title, description, t))
-  let dft ?title ?description n t d = Dft (n, Describe (title, description, t), d)
-
-  let mu name self = Mu (name, self)
-  let null = Null
-  let int = Int
-  let float = Float
-  let string = String
-  let conv ffrom fto ?schema t =
-    match schema with
-    | None ->
-      Conv (ffrom, fto, t)
-    | Some schema ->
-      let ffrom j = construct t (ffrom j) in
-      let fto v = fto (destruct t v) in
-      Custom (ffrom, fto, schema)
-  let bytes = Conv (Bytes.to_string, Bytes.of_string, string)
-  let bool = Bool
-  let array t = Array t
-  let obj1 f1 = Obj f1
-  let obj2 f1 f2 = Objs (Obj f1, Obj f2)
-  let obj3 f1 f2 f3 =
-    Conv
-      ((fun (a, b, c) -> (a, (b, c))),
-       (fun (a, (b, c)) -> (a, b, c)),
-       Objs (Obj f1, Objs (Obj f2, Obj f3)))
-  let obj4 f1 f2 f3 f4 =
-    Conv
-      ((fun (a, b, c, d) -> (a, (b, (c, d)))),
-       (fun (a, (b, (c, d))) -> (a, b, c, d)),
-       Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Obj f4))))
-  let obj5 f1 f2 f3 f4 f5 =
-    Conv
-      ((fun (a, b, c, d, e) -> (a, (b, (c, (d, e))))),
-       (fun (a, (b, (c, (d, e)))) -> (a, b, c, d, e)),
-       Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Obj f5)))))
-  let obj6 f1 f2 f3 f4 f5 f6 =
-    Conv
-      ((fun (a, b, c, d, e, f) -> (a, (b, (c, (d, (e, f)))))),
-       (fun (a, (b, (c, (d, (e, f))))) -> (a, b, c, d, e, f)),
-       Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Objs (Obj f5, Obj f6))))))
-  let obj7 f1 f2 f3 f4 f5 f6 f7 =
-    Conv
-      ((fun (a, b, c, d, e, f, g) -> (a, (b, (c, (d, (e, (f, g))))))),
-       (fun (a, (b, (c, (d, (e, (f, g)))))) -> (a, b, c, d, e, f, g)),
-       let rest = Objs (Obj f6, Obj f7) in
-       Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Objs (Obj f5, rest))))))
-  let obj8 f1 f2 f3 f4 f5 f6 f7 f8 =
-    Conv
-      ((fun (a, b, c, d, e, f, g, h) -> (a, (b, (c, (d, (e, (f, (g, h)))))))),
-       (fun (a, (b, (c, (d, (e, (f, (g, h))))))) -> (a, b, c, d, e, f, g, h)),
-       let rest = Objs (Obj f6, Objs (Obj f7, Obj f8)) in
-       Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Objs (Obj f5, rest))))))
-  let obj9 f1 f2 f3 f4 f5 f6 f7 f8 f9 =
-    Conv
-      ((fun (a, b, c, d, e, f, g, h, i) -> (a, (b, (c, (d, (e, (f, (g, (h, i))))))))),
-       (fun (a, (b, (c, (d, (e, (f, (g, (h, i)))))))) -> (a, b, c, d, e, f, g, h, i)),
-       let rest = Objs (Obj f6, Objs (Obj f7, Objs (Obj f8, Obj f9))) in
-       Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Objs (Obj f5, rest))))))
-  let obj10 f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 =
-    Conv
-      ((fun (a, b, c, d, e, f, g, h, i, j) -> (a, (b, (c, (d, (e, (f, (g, (h, (i, j)))))))))),
-       (fun (a, (b, (c, (d, (e, (f, (g, (h, (i, j))))))))) -> (a, b, c, d, e, f, g, h, i, j)),
-       let rest = Objs (Obj f6, Objs (Obj f7, Objs (Obj f8, Objs (Obj f9, Obj f10)))) in
-       Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Objs (Obj f5, rest))))))
-  let tup1 f1 = Tup f1
-  let tup2 f1 f2 = Tups (Tup f1, Tup f2)
-  let tup3 f1 f2 f3 =
-    Conv
-      ((fun (a, b, c) -> (a, (b, c))),
-       (fun (a, (b, c)) -> (a, b, c)),
-       Tups (Tup f1, Tups (Tup f2, Tup f3)))
-  let tup4 f1 f2 f3 f4 =
-    Conv
-      ((fun (a, b, c, d) -> (a, (b, (c, d)))),
-       (fun (a, (b, (c, d))) -> (a, b, c, d)),
-       Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tup f4))))
-  let tup5 f1 f2 f3 f4 f5 =
-    Conv
-      ((fun (a, b, c, d, e) -> (a, (b, (c, (d, e))))),
-       (fun (a, (b, (c, (d, e)))) -> (a, b, c, d, e)),
-       Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tup f5)))))
-  let tup6 f1 f2 f3 f4 f5 f6 =
-    Conv
-      ((fun (a, b, c, d, e, f) -> (a, (b, (c, (d, (e, f)))))),
-       (fun (a, (b, (c, (d, (e, f))))) -> (a, b, c, d, e, f)),
-       Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, Tup f6))))))
-  let tup7 f1 f2 f3 f4 f5 f6 f7 =
-    Conv
-      ((fun (a, b, c, d, e, f, g) -> (a, (b, (c, (d, (e, (f, g))))))),
-       (fun (a, (b, (c, (d, (e, (f, g)))))) -> (a, b, c, d, e, f, g)),
-       let rest = Tups (Tup f6, Tup f7) in
-       Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, rest))))))
-  let tup8 f1 f2 f3 f4 f5 f6 f7 f8 =
-    Conv
-      ((fun (a, b, c, d, e, f, g, h) -> (a, (b, (c, (d, (e, (f, (g, h)))))))),
-       (fun (a, (b, (c, (d, (e, (f, (g, h))))))) -> (a, b, c, d, e, f, g, h)),
-       let rest = Tups (Tup f6, Tups (Tup f7, Tup f8)) in
-       Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, rest))))))
-  let tup9 f1 f2 f3 f4 f5 f6 f7 f8 f9 =
-    Conv
-      ((fun (a, b, c, d, e, f, g, h, i) -> (a, (b, (c, (d, (e, (f, (g, (h, i))))))))),
-       (fun (a, (b, (c, (d, (e, (f, (g, (h, i)))))))) -> (a, b, c, d, e, f, g, h, i)),
-       let rest = Tups (Tup f6, Tups (Tup f7, Tups (Tup f8, Tup f9))) in
-       Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, rest))))))
-  let tup10 f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 =
-    Conv
-      ((fun (a, b, c, d, e, f, g, h, i, j) -> (a, (b, (c, (d, (e, (f, (g, (h, (i, j)))))))))),
-       (fun (a, (b, (c, (d, (e, (f, (g, (h, (i, j))))))))) -> (a, b, c, d, e, f, g, h, i, j)),
-       let rest = Tups (Tup f6, Tups (Tup f7, Tups (Tup f8, Tups (Tup f9, Tup f10)))) in
-       Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, rest))))))
-
-  let custom w r ~schema = Custom (w, r, schema)
-  let describe ?title ?description t = Describe (title, description, t)
-  let string_enum cases =
-    let specs = Json_schema.({ pattern = None ; min_length = 0 ; max_length = None }) in
-    let enum = List.map (fun (s, _) -> Repr.repr (`String s)) cases in
-    let rcases = List.map (fun (s, c) -> (c, s)) cases in
-    conv
-      (fun v -> try List.assoc v rcases with Not_found ->
-          invalid_arg "Json_encoding.string_enum")
-      (fun s ->
-         (try List.assoc s cases with Not_found ->
-            let rec orpat ppf = function
-              | [] -> assert false
-              | [ last, _ ] -> Format.fprintf ppf "%S" last
-              | [ prev, _ ; last, _ ] -> Format.fprintf ppf "%S or %S" prev last
-              | (prev, _) :: rem -> Format.fprintf ppf "%S , %a" prev orpat rem in
-            let unexpected = Format.asprintf "string value %S" s in
-            let expected = Format.asprintf "%a" orpat cases in
-            raise (Cannot_destruct ([], Unexpected (unexpected, expected)))))
-      ~schema: Json_schema.(update { (element (String specs)) with enum = Some enum } any)
-      string
-
-  let def name encoding =
-    Custom
-      (construct encoding,
-       destruct encoding,
-       (let open Json_schema in
-        let sch = schema encoding in
-        let sch, def = add_definition name (root sch) sch in
-        update def sch))
-
-  let assoc : type t. t encoding -> (string * t) list encoding = fun t ->
-    Custom
-      ((fun l -> Repr.repr (`O (List.map (fun (n, v) -> n, construct t v) l))),
-       (fun v -> match Repr.view v with
-         | `O l ->
-           let destruct n t v = try
-               destruct t v
-             with Cannot_destruct (p, exn) -> raise (Cannot_destruct (`Field n :: p, exn)) in
-           List.map (fun (n, v) -> n, destruct n t v) l
-         | #Json_repr.view as k -> raise (unexpected k "asssociative object")),
-       let s = schema t in
-       Json_schema.(update (element (Object { object_specs with additional_properties = Some (root s)})) s))
-
-  let option : type t. t encoding -> t option encoding = fun t ->
-    Custom
-      ((function None -> Repr.repr `Null | Some v -> construct t v),
-       (fun v -> match Repr.view v with `Null -> None | _ -> Some (destruct t v)),
-       let s = schema t in
-       Json_schema.(update (element (Combine (One_of, [(root s) ; element Null]))) s))
-
-  let int32 =
-    Conv (Int32.to_float, Int32.of_float, float)
-
-  let any_value =
-    Custom
-      ((fun value -> value),
-       (fun value -> value),
-       Json_schema.any)
-
-  let any_document =
-    Custom
-      ((fun value -> value),
-       (fun v -> match Repr.view v with `A _ | `O _ -> v | k -> raise @@ unexpected k "array or object"),
-       Json_schema.any)
-
-  let any_schema =
-    Custom
-      (Json_schema.to_json,
-       (fun j -> try Json_schema.of_json j with err ->
-           raise (Cannot_destruct ([], Bad_schema err))),
-       Json_schema.self)
-
-  let merge_tups t1 t2 =
-    let rec is_tup : type t. t encoding -> bool = function
-      | Tup _ -> true
-      | Tups _ (* by construction *) -> true
-      | Conv (_, _, t) -> is_tup t
-      | _ -> false in
-    if is_tup t1 && is_tup t2 then
-      Tups (t1, t2)
-    else
-      invalid_arg "Json_encoding.merge_tups"
-
-  let list t =
-    Conv (Array.of_list, Array.to_list, Array t)
-
-  let merge_objs o1 o2 =
-    let rec is_obj : type t. t encoding -> bool = function
-      | Obj _ -> true
-      | Objs _ (* by construction *) -> true
-      | Conv (_, _, t) -> is_obj t
-      | Empty -> true
-      | Ignore -> true
-      | _ -> false in
-    if is_obj o1 && is_obj o2 then
-      Objs (o1, o2)
-    else
-      invalid_arg "Json_encoding.merge_objs"
-
-  let empty =
-    Empty
-
-  let unit =
-    Ignore
-
-  type 't case = Case : 'a encoding * ('t -> 'a option) * ('a -> 't) -> 't case
-
-  let case encoding fto ffrom =
-    Case (encoding, fto, ffrom)
-
-  let union = function
-    | [] -> invalid_arg "Json_encoding.union"
-    | l ->
-      Custom
-        ((fun v ->
-            let rec do_cases = function
-              | [] -> invalid_arg "Json_encoding.union"
-              | Case (encoding, fto, _) :: rest ->
-                match fto v with
-                | Some v -> construct encoding v
-                | None -> do_cases rest in
-            do_cases l),
-         (fun v ->
-            let rec do_cases errs = function
-              | [] -> raise (Cannot_destruct ([], No_case_matched (List.rev errs)))
-              | Case (encoding, _, ffrom) :: rest ->
-                try ffrom (destruct encoding v) with
-                  err -> do_cases (err :: errs) rest in
-            do_cases [] l),
-         Json_schema.combine
-           Json_schema.One_of
-           (List.map (fun (Case (encoding, _, _)) -> schema encoding) l))
+  let custom write read ~schema =
+    let read
+      : type tf. (module Json_repr.Repr with type value = tf) -> tf -> 't
+      = fun (module Repr_f) repr ->
+        read (Json_repr.convert (module Repr_f) (module Repr) repr) in
+    let write
+      : type tf. (module Json_repr.Repr with type value = tf) -> 't -> tf
+      = fun (module Repr_f) v ->
+        Json_repr.convert (module Repr) (module Repr_f) (write v) in
+    Custom ({ read ; write }, schema)
 end
+
+module Json_repr_encoding = Make (Json_repr)
+
+let schema encoding =
+  let open Json_schema in
+  let sch = ref any in
+  let rec object_schema
+    : type t. t encoding -> (string * element * bool * Json_repr.any option) list
+    = function
+      | Conv (_, _, o, None) -> object_schema o
+      | Empty -> []
+      | Ignore -> []
+      | Obj (Req (n, t)) -> [ n, schema t, true, None ]
+      | Obj (Opt (n, t)) -> [ n, schema t, false, None ]
+      | Obj (Dft (n, t, d)) ->
+        let d = Json_repr.to_any (module Json_repr) (Json_repr_encoding.construct t d) in
+        [ n, schema t, false, Some d]
+      | Objs (o1, o2) -> object_schema o1 @ object_schema o2
+      | Conv (_, _, _, Some _) (* We could do better *)
+      | _ -> invalid_arg "Json_encoding.schema: consequence of bad merge_objs"
+  and array_schema
+    : type t. t encoding -> element list
+    = function
+      | Conv (_, _, o, None) -> array_schema o
+      | Tup t -> [ schema t ]
+      | Tups (t1, t2) -> array_schema t1 @ array_schema t2
+      | Conv (_, _, _, Some _) (* We could do better *)
+      | _ -> invalid_arg "Json_encoding.schema: consequence of bad merge_tups"
+  and schema
+    : type t. t encoding -> element
+    = function
+      | Null -> element Null
+      | Empty -> element (Object { object_specs with additional_properties = None })
+      | Ignore -> element Any
+      | Int -> element Integer
+      | Bool -> element Boolean
+      | String -> element (String string_specs)
+      | Float -> element Number
+      | Describe (None, None, t) -> schema t
+      | Describe (Some _ as title, None, t) ->
+        { (schema t) with title }
+      | Describe (None, (Some _ as description), t) ->
+        { (schema t) with description }
+      | Describe (Some _ as title, (Some _ as description), t) ->
+        { (schema t) with title ; description }
+      | Custom (_, s) ->
+        sch := fst (merge_definitions (!sch, s)) ;
+        root s
+      | Conv (_, _, _, Some s) ->
+        sch := fst (merge_definitions (!sch, s)) ;
+        root s
+      | Conv (_, _, t, None) -> schema t
+      | Mu (name, f) ->
+        let fake_schema =
+          let sch, elt = add_definition name (element Dummy) any in
+          update elt sch in
+        let fake_self =
+          Custom ({ write = (fun _ _ -> assert false) ;
+                    read = (fun _ -> assert false) },
+                  fake_schema) in
+        let nsch, def = add_definition name (schema (f fake_self)) !sch in
+        sch := nsch ; def
+      | Array t ->
+        element (Monomorphic_array (schema t, array_specs))
+      | Obj _ as o -> element (Object { object_specs with properties = object_schema o })
+      | Objs _ as o -> element (Object { object_specs with properties = object_schema o })
+      | Tup _ as t -> element (Array (array_schema t, array_specs))
+      | Tups _ as t -> element (Array (array_schema t, array_specs)) in
+  let schema = schema encoding in
+  update schema !sch
+
+(*-- utility wrappers over the GADT ------------------------------------------*)
+
+let req ?title ?description n t = Req (n, Describe (title, description, t))
+let opt ?title ?description n t = Opt (n, Describe (title, description, t))
+let dft ?title ?description n t d = Dft (n, Describe (title, description, t), d)
+
+let mu name self = Mu (name, self)
+let null = Null
+let int = Int
+let float = Float
+let string = String
+let conv ffrom fto ?schema t =
+  Conv (ffrom, fto, t, schema)
+let bytes = Conv (Bytes.to_string, Bytes.of_string, string, None)
+let bool = Bool
+let array t = Array t
+let obj1 f1 = Obj f1
+let obj2 f1 f2 = Objs (Obj f1, Obj f2)
+let obj3 f1 f2 f3 =
+  conv
+    (fun (a, b, c) -> (a, (b, c)))
+    (fun (a, (b, c)) -> (a, b, c))
+    (Objs (Obj f1, Objs (Obj f2, Obj f3)))
+let obj4 f1 f2 f3 f4 =
+  conv
+    (fun (a, b, c, d) -> (a, (b, (c, d))))
+    (fun (a, (b, (c, d))) -> (a, b, c, d))
+    (Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Obj f4))))
+let obj5 f1 f2 f3 f4 f5 =
+  conv
+    (fun (a, b, c, d, e) -> (a, (b, (c, (d, e)))))
+    (fun (a, (b, (c, (d, e)))) -> (a, b, c, d, e))
+    (Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Obj f5)))))
+let obj6 f1 f2 f3 f4 f5 f6 =
+  conv
+    (fun (a, b, c, d, e, f) -> (a, (b, (c, (d, (e, f))))))
+    (fun (a, (b, (c, (d, (e, f))))) -> (a, b, c, d, e, f))
+    (Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Objs (Obj f5, Obj f6))))))
+let obj7 f1 f2 f3 f4 f5 f6 f7 =
+  conv
+    (fun (a, b, c, d, e, f, g) -> (a, (b, (c, (d, (e, (f, g)))))))
+    (fun (a, (b, (c, (d, (e, (f, g)))))) -> (a, b, c, d, e, f, g))
+    (let rest = Objs (Obj f6, Obj f7) in
+     Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Objs (Obj f5, rest))))))
+let obj8 f1 f2 f3 f4 f5 f6 f7 f8 =
+  conv
+    (fun (a, b, c, d, e, f, g, h) -> (a, (b, (c, (d, (e, (f, (g, h))))))))
+    (fun (a, (b, (c, (d, (e, (f, (g, h))))))) -> (a, b, c, d, e, f, g, h))
+    (let rest = Objs (Obj f6, Objs (Obj f7, Obj f8)) in
+     Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Objs (Obj f5, rest))))))
+let obj9 f1 f2 f3 f4 f5 f6 f7 f8 f9 =
+  conv
+    (fun (a, b, c, d, e, f, g, h, i) -> (a, (b, (c, (d, (e, (f, (g, (h, i)))))))))
+    (fun (a, (b, (c, (d, (e, (f, (g, (h, i)))))))) -> (a, b, c, d, e, f, g, h, i))
+    (let rest = Objs (Obj f6, Objs (Obj f7, Objs (Obj f8, Obj f9))) in
+     Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Objs (Obj f5, rest))))))
+let obj10 f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 =
+  conv
+    (fun (a, b, c, d, e, f, g, h, i, j) -> (a, (b, (c, (d, (e, (f, (g, (h, (i, j))))))))))
+    (fun (a, (b, (c, (d, (e, (f, (g, (h, (i, j))))))))) -> (a, b, c, d, e, f, g, h, i, j))
+    (let rest = Objs (Obj f6, Objs (Obj f7, Objs (Obj f8, Objs (Obj f9, Obj f10)))) in
+     Objs (Obj f1, Objs (Obj f2, Objs (Obj f3, Objs (Obj f4, Objs (Obj f5, rest))))))
+let tup1 f1 = Tup f1
+let tup2 f1 f2 = Tups (Tup f1, Tup f2)
+let tup3 f1 f2 f3 =
+  conv
+    (fun (a, b, c) -> (a, (b, c)))
+    (fun (a, (b, c)) -> (a, b, c))
+    (Tups (Tup f1, Tups (Tup f2, Tup f3)))
+let tup4 f1 f2 f3 f4 =
+  conv
+    (fun (a, b, c, d) -> (a, (b, (c, d))))
+    (fun (a, (b, (c, d))) -> (a, b, c, d))
+    (Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tup f4))))
+let tup5 f1 f2 f3 f4 f5 =
+  conv
+    (fun (a, b, c, d, e) -> (a, (b, (c, (d, e)))))
+    (fun (a, (b, (c, (d, e)))) -> (a, b, c, d, e))
+    (Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tup f5)))))
+let tup6 f1 f2 f3 f4 f5 f6 =
+  conv
+    (fun (a, b, c, d, e, f) -> (a, (b, (c, (d, (e, f))))))
+    (fun (a, (b, (c, (d, (e, f))))) -> (a, b, c, d, e, f))
+    (Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, Tup f6))))))
+let tup7 f1 f2 f3 f4 f5 f6 f7 =
+  conv
+    (fun (a, b, c, d, e, f, g) -> (a, (b, (c, (d, (e, (f, g)))))))
+    (fun (a, (b, (c, (d, (e, (f, g)))))) -> (a, b, c, d, e, f, g))
+    (let rest = Tups (Tup f6, Tup f7) in
+     Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, rest))))))
+let tup8 f1 f2 f3 f4 f5 f6 f7 f8 =
+  conv
+    (fun (a, b, c, d, e, f, g, h) -> (a, (b, (c, (d, (e, (f, (g, h))))))))
+    (fun (a, (b, (c, (d, (e, (f, (g, h))))))) -> (a, b, c, d, e, f, g, h))
+    (let rest = Tups (Tup f6, Tups (Tup f7, Tup f8)) in
+     Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, rest))))))
+let tup9 f1 f2 f3 f4 f5 f6 f7 f8 f9 =
+  conv
+    (fun (a, b, c, d, e, f, g, h, i) -> (a, (b, (c, (d, (e, (f, (g, (h, i)))))))))
+    (fun (a, (b, (c, (d, (e, (f, (g, (h, i)))))))) -> (a, b, c, d, e, f, g, h, i))
+    (let rest = Tups (Tup f6, Tups (Tup f7, Tups (Tup f8, Tup f9))) in
+     Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, rest))))))
+let tup10 f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 =
+  conv
+    (fun (a, b, c, d, e, f, g, h, i, j) -> (a, (b, (c, (d, (e, (f, (g, (h, (i, j))))))))))
+    (fun (a, (b, (c, (d, (e, (f, (g, (h, (i, j))))))))) -> (a, b, c, d, e, f, g, h, i, j))
+    (let rest = Tups (Tup f6, Tups (Tup f7, Tups (Tup f8, Tups (Tup f9, Tup f10)))) in
+     Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, rest))))))
+
+let custom' { write ; read } ~schema =
+  Custom ({ write ; read }, schema)
+
+let describe ?title ?description t = Describe (title, description, t)
+
+let string_enum cases =
+  let specs = Json_schema.({ pattern = None ; min_length = 0 ; max_length = None }) in
+  let enum = List.map (fun (s, _) -> Json_repr.(to_any (module Ezjsonm)) (`String s)) cases in
+  let rcases = List.map (fun (s, c) -> (c, s)) cases in
+  conv
+    (fun v -> try List.assoc v rcases with Not_found ->
+        invalid_arg "Json_encoding.string_enum")
+    (fun s ->
+       (try List.assoc s cases with Not_found ->
+          let rec orpat ppf = function
+            | [] -> assert false
+            | [ last, _ ] -> Format.fprintf ppf "%S" last
+            | [ prev, _ ; last, _ ] -> Format.fprintf ppf "%S or %S" prev last
+            | (prev, _) :: rem -> Format.fprintf ppf "%S , %a" prev orpat rem in
+          let unexpected = Format.asprintf "string value %S" s in
+          let expected = Format.asprintf "%a" orpat cases in
+          raise (Cannot_destruct ([], Unexpected (unexpected, expected)))))
+    ~schema: Json_schema.(update { (element (String specs)) with enum = Some enum } any)
+    string
+
+let def name encoding =
+  Json_repr_encoding.custom
+    (Json_repr_encoding.construct encoding)
+    (Json_repr_encoding.destruct encoding)
+    (let open Json_schema in
+     let sch = schema encoding in
+     let sch, def = add_definition name (root sch) sch in
+     update def sch)
+
+let assoc : type t. t encoding -> (string * t) list encoding = fun t ->
+  Json_repr_encoding.custom
+    (fun l -> `O (List.map (fun (n, v) -> n, Json_repr_encoding.construct t v) l))
+    (fun v -> match v with
+       | `O l ->
+         let destruct n t v = try
+             Json_repr_encoding.destruct t v
+           with Cannot_destruct (p, exn) -> raise (Cannot_destruct (`Field n :: p, exn)) in
+         List.map (fun (n, v) -> n, destruct n t v) l
+       | #Json_repr.value as k -> raise (unexpected k "asssociative object"))
+    (let s = schema t in
+     Json_schema.(update (element (Object { object_specs with additional_properties = Some (root s)})) s))
+
+let option : type t. t encoding -> t option encoding = fun t ->
+  Json_repr_encoding.custom
+    (function None -> `Null | Some v -> Json_repr_encoding.construct t v)
+    (fun v -> match v with `Null -> None | _ -> Some (Json_repr_encoding.destruct t v))
+    (let s = schema t in
+     Json_schema.(update (element (Combine (One_of, [(root s) ; element Null]))) s))
+
+let int32 =
+  Conv (Int32.to_float, Int32.of_float, float, None)
+
+let any_value =
+  let read repr v = Json_repr.to_any repr v in
+  let write repr v = Json_repr.from_any repr v in
+  Custom ({ read ; write }, Json_schema.any)
+
+let any_document =
+  let read
+    : type tt. (module Json_repr.Repr with type value = tt) -> tt -> Json_repr.any
+    = fun (module Repr) v ->
+      match Repr.view v with
+      | `A _ | `O _ ->
+        Json_repr.to_any (module Repr) v
+      | k -> raise @@ unexpected k "array or object" in
+  let write repr v = Json_repr.from_any repr v in
+  Custom ({ read ; write }, Json_schema.any)
+
+let any_schema =
+  Json_repr_encoding.custom
+    Json_schema.to_json
+    (fun j -> try Json_schema.of_json j with err ->
+        raise (Cannot_destruct ([], Bad_schema err)))
+    Json_schema.self
+
+let merge_tups t1 t2 =
+  let rec is_tup : type t. t encoding -> bool = function
+    | Tup _ -> true
+    | Tups _ (* by construction *) -> true
+    | Conv (_, _, t, None) -> is_tup t
+    | _ -> false in
+  if is_tup t1 && is_tup t2 then
+    Tups (t1, t2)
+  else
+    invalid_arg "Json_encoding.merge_tups"
+
+let list t =
+  Conv (Array.of_list, Array.to_list, Array t, None)
+
+let merge_objs o1 o2 =
+  let rec is_obj : type t. t encoding -> bool = function
+    | Obj _ -> true
+    | Objs _ (* by construction *) -> true
+    | Conv (_, _, t, None) -> is_obj t
+    | Empty -> true
+    | Ignore -> true
+    | _ -> false in
+  if is_obj o1 && is_obj o2 then
+    Objs (o1, o2)
+  else
+    invalid_arg "Json_encoding.merge_objs"
+
+let empty =
+  Empty
+
+let unit =
+  Ignore
+
+type 't case = Case : 'a encoding * ('t -> 'a option) * ('a -> 't) -> 't case
+
+let case encoding fto ffrom =
+  Case (encoding, fto, ffrom)
+
+let union = function
+  | [] -> invalid_arg "Json_encoding.union"
+  | (l : 't case list) ->
+    let write
+      : type tt. (module Json_repr.Repr with type value = tt) -> 't -> tt
+      = fun (module Repr) v ->
+        let module Repr_encoding = Make (Repr) in
+        let rec do_cases = function
+          | [] -> invalid_arg "Json_encoding.union"
+          | Case (encoding, fto, _) :: rest ->
+            match fto v with
+            | Some v -> Repr_encoding.construct encoding v
+            | None -> do_cases rest in
+        do_cases l in
+    let read
+      : type tt. (module Json_repr.Repr with type value = tt) -> tt -> 't
+      = fun (module Repr) v ->
+        let module Repr_encoding = Make (Repr) in
+        let rec do_cases errs = function
+          | [] -> raise (Cannot_destruct ([], No_case_matched (List.rev errs)))
+          | Case (encoding, _, ffrom) :: rest ->
+            try ffrom (Repr_encoding.destruct encoding v) with
+              err -> do_cases (err :: errs) rest in
+        do_cases [] l in
+    Custom
+      ({ read ; write },
+       Json_schema.combine
+         Json_schema.One_of
+         (List.map (fun (Case (encoding, _, _)) -> schema encoding) l))
 
 let rec print_error ?print_unknown ppf = function
   | Cannot_destruct ([], exn) ->
@@ -625,4 +651,4 @@ let rec print_error ?print_unknown ppf = function
   | exn ->
     Json_schema.print_error ?print_unknown ppf exn
 
-include Make (Json_repr)
+include Json_repr_encoding

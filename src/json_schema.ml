@@ -45,95 +45,94 @@ let rec print_error ?print_unknown ppf = function
   | exn ->
     Json_query.print_error ?print_unknown ppf exn
 
+(* The currently handled version *)
+let version = "http://json-schema.org/draft-04/schema#"
+
+(*-- types and errors ------------------------------------------------------*)
+
+(* The root of a schema with the named definitions,
+   a precomputed ID-element map and a cache for external documents. *)
+type schema =
+  { root : element ;
+    source : Uri.t (* whose fragment should be empty *) ;
+    definitions : (path * element) list ;
+    ids : (string * element) list ;
+    world : schema list }
+
+and element =
+  { title : string option ;
+    description : string option ;
+    default : Json_repr.any option ;
+    enum : Json_repr.any list option ;
+    kind : element_kind ;
+    format : string option ;
+    id : string option }
+
+and element_kind =
+  | Object of object_specs
+  | Array of element list * array_specs
+  | Monomorphic_array of element * array_specs
+  | Combine of combinator * element list
+  | Def_ref of path
+  | Id_ref of string
+  | Ext_ref of Uri.t
+  | String of string_specs
+  | Integer | Number | Boolean | Null | Any
+  | Dummy
+
+and combinator =
+  | Any_of | One_of | All_of | Not
+
+and array_specs =
+  { min_items : int ;
+    max_items : int option ;
+    unique_items : bool ;
+    additional_items : element option }
+
+and object_specs =
+  { properties : (string * element * bool * Json_repr.any option) list ;
+    pattern_properties : (string * element) list ;
+    additional_properties : element option ;
+    min_properties : int ;
+    max_properties : int option ;
+    schema_dependencies : (string * element) list ;
+    property_dependencies : (string * string list) list }
+
+and string_specs =
+  { pattern : string option ;
+    min_length : int ;
+    max_length : int option }
+
+(* box an element kind without any optional field *)
+let element kind =
+  { title = None ; description = None ; default = None ; kind ;
+    format = None ; enum = None ; id = None }
+
+(*-- internal definition table handling ------------------------------------*)
+
+let find_definition name defs =
+  List.assoc name defs
+
+let definition_exists name defs =
+  List.mem_assoc name defs
+
+let insert_definition name elt defs =
+  let rec insert = function
+    | [] ->
+      [ (name, elt) ]
+    | (defname, _) as def :: rem when defname <> name ->
+      def :: insert rem
+    | (_, { kind = Dummy }) :: rem ->
+      (name, elt) :: rem
+    | (_, defelt) :: rem ->
+      if elt <> defelt then raise (Duplicate_definition name) ;
+      (name, elt) :: rem in
+  insert defs
 
 module Make (Repr : Json_repr.Repr) = struct
 
   module Query = Json_query.Make (Repr)
   open Query
-
-  (* The currently handled version *)
-  let version = "http://json-schema.org/draft-04/schema#"
-
-  (*-- types and errors ------------------------------------------------------*)
-
-  (* The root of a schema with the named definitions,
-     a precomputed ID-element map and a cache for external documents. *)
-  type schema =
-    { root : element ;
-      source : Uri.t (* whose fragment should be empty *) ;
-      definitions : (path * element) list ;
-      ids : (string * element) list ;
-      world : schema list }
-
-  and element =
-    { title : string option ;
-      description : string option ;
-      default : Repr.value option ;
-      enum : Repr.value list option ;
-      kind : element_kind ;
-      format : string option ;
-      id : string option }
-
-  and element_kind =
-    | Object of object_specs
-    | Array of element list * array_specs
-    | Monomorphic_array of element * array_specs
-    | Combine of combinator * element list
-    | Def_ref of path
-    | Id_ref of string
-    | Ext_ref of Uri.t
-    | String of string_specs
-    | Integer | Number | Boolean | Null | Any
-    | Dummy
-
-  and combinator =
-    | Any_of | One_of | All_of | Not
-
-  and array_specs =
-    { min_items : int ;
-      max_items : int option ;
-      unique_items : bool ;
-      additional_items : element option }
-
-  and object_specs =
-    { properties : (string * element * bool * Repr.value option) list ;
-      pattern_properties : (string * element) list ;
-      additional_properties : element option ;
-      min_properties : int ;
-      max_properties : int option ;
-      schema_dependencies : (string * element) list ;
-      property_dependencies : (string * string list) list }
-
-  and string_specs =
-    { pattern : string option ;
-      min_length : int ;
-      max_length : int option }
-
-  (* box an element kind without any optional field *)
-  let element kind =
-    { title = None ; description = None ; default = None ; kind ;
-      format = None ; enum = None ; id = None }
-
-  (*-- internal definition table handling ------------------------------------*)
-
-  let find_definition name defs =
-    List.assoc name defs
-
-  let definition_exists name defs =
-    List.mem_assoc name defs
-
-  let insert_definition name elt defs =
-    let rec insert = function
-      | [] ->
-        [ (name, elt) ]
-      | (defname, _) as def :: rem when defname <> name ->
-        def :: insert rem
-      | (_, { kind = Dummy }) :: rem ->
-        (name, elt) :: rem
-      | (_, defelt) :: rem ->
-        if elt <> defelt then raise (Duplicate_definition name) ;
-        (name, elt) :: rem in
-    insert defs
 
   (*-- printer ---------------------------------------------------------------*)
 
@@ -235,8 +234,10 @@ module Make (Repr : Json_repr.Repr) = struct
         | Dummy ->
           invalid_arg "Json_schema.to_json: remaining dummy element"
         | Any -> [] end @
-      set_if_some "default" default  (fun j -> Repr.view j) @
-      set_if_some "enum" enum (fun js -> `A js) @
+      set_if_some "default" default (fun j ->
+          Repr.view (Json_repr.from_any (module Repr) j)) @
+      set_if_some "enum" enum (fun js ->
+          `A (List.map (Json_repr.from_any (module Repr)) js)) @
       set_if_some "format" format (fun s -> `String s) in
     List.fold_left
       (fun acc (n, elt) -> insert n (obj (format_element elt)) acc)
@@ -405,8 +406,12 @@ module Make (Repr : Json_repr.Repr) = struct
         (* parse optional fields *)
         let title = opt_string_field json "title" in
         let description = opt_string_field json "description" in
-        let default = opt_field json "default" in
-        let enum = opt_array_field json "enum" in
+        let default = match opt_field json "default" with
+          | Some v -> Some (Json_repr.to_any (module Repr) v)
+          | None -> None in
+        let enum =match opt_array_field json "enum" with
+          | Some v -> Some (List.map (Json_repr.to_any (module Repr)) v)
+          | None -> None in
         let format = opt_string_field json "format" in (* TODO: check format ? *)
         (* combine all specifications under a big conjunction *)
         let as_one_of = as_nary "oneOf" One_of [] in

@@ -51,6 +51,12 @@ module type Repr = sig
 
 end
 
+(** Convert a JSON value from one representation to another. *)
+val convert :
+  (module Repr with type value = 'tf) ->
+  (module Repr with type value = 'tt) ->
+  'tf -> 'tt
+
 (** {2 Third party in-memory JSON document representations} *) (****************)
 
 (** A JSON value compatible with {!Ezjsonm.value}. *)
@@ -105,3 +111,18 @@ val from_yojson : [< yojson ] -> [> value ]
 
 (** Conversion helper. *)
 val to_yojson : [< value] -> [> yojson ]
+
+(** {2 Representation-agnostic JSON format} *) (********************************)
+
+(** A meta-representation for JSON values that can unify values of
+    different representations by boxing them with their corresponding
+    {!Repr} modules. *)
+type any = Value_with_repr: (module Repr with type value = 'a) * 'a -> any
+
+(** Converts a boxed value from its intrinsic representation to the
+    one of the given {!Repr} module. Optimized if the internal
+    representation of the value actually is the requested one. *)
+val from_any : (module Repr with type value = 'a) -> any -> 'a
+
+(** Boxes a value with a compatible {!Repr} module. *)
+val to_any : (module Repr with type value = 'a) -> 'a -> any
