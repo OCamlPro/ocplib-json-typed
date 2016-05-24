@@ -468,13 +468,12 @@ let string_enum cases =
     string
 
 let def name encoding =
-  Ezjsonm_encoding.custom
-    (Ezjsonm_encoding.construct encoding)
-    (Ezjsonm_encoding.destruct encoding)
-    (let open Json_schema in
-     let sch = schema encoding in
-     let sch, def = add_definition name (root sch) sch in
-     update def sch)
+  let schema =
+    let open Json_schema in
+    let sch = schema encoding in
+    let sch, def = add_definition name (root sch) sch in
+    update def sch in
+  conv (fun v -> v) (fun v -> v) ~schema encoding
 
 let assoc : type t. t encoding -> (string * t) list encoding = fun t ->
   Ezjsonm_encoding.custom
