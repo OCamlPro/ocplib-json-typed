@@ -41,30 +41,27 @@
       3. Describe this encoding in JSON-schema format for inter-operability:
          you describe the encoding of your internal types, and obtain
          machine-readable descriptions of the formats as a byproduct.
-         Specific documentation combinators are provided for that purpose. *)
+         Specific documentation combinators are provided for that purpose.
+
+    Encodings do not care about the representation for JSON data.
+    However, by default, this module uses the {!Json_repr.ezjsonm} data type.
+    See functor {!Make} and module {!Json_repr} for using another format. *)
 type 'a encoding
 
-(** Constructors and destructors for a given JSON representation. *)
-module Make (Repr : Json_repr.Repr) : sig
+(** {2 Constructors and destructors for {!Json_repr.ezjsonm}} *) (***************)
 
-  (** Builds a json value from an OCaml value and an encoding. *)
-  val construct : 't encoding -> 't -> Repr.value
+(** Builds a json value from an OCaml value and an encoding.
 
-  (** Reads an OCaml value from a JSON value and an encoding.
-      May raise [Cannot_destruct]. *)
-  val destruct : 't encoding -> Repr.value -> 't
+    This function works with JSON data represented in the {!Json_repr.ezjsonm}
+    format. See functor {!Make} for using another representation. *)
+val construct : 't encoding -> 't -> Json_repr.ezjsonm
 
-  (** A simple custom encoding using this intermediate representation
-      for the conversion functions. The resulting encoding is usable
-      with any other instanciation of the functor, internal
-      conversions will be performed when needed. *)
-  val custom :
-    ('t -> Repr.value) ->
-    (Repr.value -> 't) ->
-    schema: Json_schema.schema ->
-    't encoding
+(** Reads an OCaml value from a JSON value and an encoding.
+    May raise [Cannot_destruct].
 
-end
+    This function works with JSON data represented in the {!Json_repr.ezjsonm}
+    format. See functor {!Make} for using another representation. *)
+val destruct : 't encoding -> Json_repr.ezjsonm -> 't
 
 (** {2 JSON type combinators for simple immediates} *) (***********************)
 
@@ -277,24 +274,21 @@ val union : 't case list -> 't encoding
 
 (** {2 JSON generic type combinators} *) (*************************************)
 
-(** Custom encoders for an OCaml type, given both custom conversion
-    functions. The actual representation is not known in advance, so
-    the conversion functions have to examine / construct the JSON
-    value through the first class modules they are passed. The [read]
-    transformer function can [raise (Cannot_destruct ([], "message"))]
+(** A simple custom encoding using the {!Json_repr.ezjsonm}
+    intermediate representation for the conversion functions. The
+    resulting encoding is usable with any other instanciation of
+    functor {!Make}, internal conversions may be performed needed.
+    The second transformer function can
+    [raise (Cannot_destruct ([ (* location *)], exn))]
     to indicate an error, which will be relocated correctly. *)
-type 't custom =
-  { write : 'rt. (module Json_repr.Repr with type value = 'rt) -> 't -> 'rt ;
-    read : 'rf. (module Json_repr.Repr with type value = 'rf) -> 'rf -> 't }
-
-(** A custom encoding, using custom encoders and a schema. *)
-val custom' :
-  't custom ->
+val custom :
+  ('t -> Json_repr.ezjsonm) ->
+  (Json_repr.ezjsonm -> 't) ->
   schema: Json_schema.schema ->
   't encoding
 
 (** An encoding adapter, with an optional handwritten schema.
-    The second transformer function can [raise (Cannot_destruct ([], "message"))]
+    The second transformer function can [raise (Cannot_destruct ([], exn))]
     to indicate an error, which will be relocated correctly. *)
 val conv :
   ('a -> 'b) ->
@@ -314,18 +308,18 @@ val conv :
     ["nil"] for [[]] or [{"hd":hd,"tl":tl}] for [hd::tl].
 
     {[ let reclist itemencoding =
-               mu "list" @@ fun self ->
-               union
-                 [ case (string_enum [ "nil", () ])
-                     (function [] -> Some () | _ :: _ -> None)
-                     (fun () -> []) ;
-                   case (obj2 (req "hd" itemencoding) (req "tl" self))
-                     (function hd :: tl -> Some (hd, tl) | [] -> None)
-                     (fun (hd, tl) -> hd :: tl) ]) ]} *)
+         mu "list" @@ fun self ->
+         union
+           [ case (string_enum [ "nil", () ])
+               (function [] -> Some () | _ :: _ -> None)
+               (fun () -> []) ;
+             case (obj2 (req "hd" itemencoding) (req "tl" self))
+               (function hd :: tl -> Some (hd, tl) | [] -> None)
+               (fun (hd, tl) -> hd :: tl) ]) ]} *)
 val mu : string -> ('a encoding -> 'a encoding) -> 'a encoding
 
-(** A raw JSON value. *)
-val any_value : Json_repr.any encoding
+(** A raw JSON value in ezjsonm representation. *)
+val any_ezjson_value : Json_repr.ezjsonm encoding
 
 (** The encoding of a JSON schema, linked to its OCaml definiton. *)
 val any_schema : Json_schema.schema encoding
@@ -377,5 +371,57 @@ val print_error
   : ?print_unknown: (Format.formatter -> exn -> unit) ->
   Format.formatter -> exn -> unit
 
-(** By default, use {!Json_repr.Ezjsonm} *)
-include module type of Make (Json_repr)
+(** {2 Advanced interface for using a custom JSON representation} *) (**********)
+
+module Make (Repr : Json_repr.Repr) : sig
+
+  (** Same as {!construct} for a custom JSON representation. *)
+  val construct : 't encoding -> 't -> Repr.value
+
+  (** Same as {!destruct} for a custom JSON representation. *)
+  val destruct : 't encoding -> Repr.value -> 't
+
+  (** Same as {!custom} for a custom JSON representation. *)
+  val custom :
+    ('t -> Repr.value) -> (Repr.value -> 't) ->
+    schema: Json_schema.schema ->
+    't encoding
+
+end
+
+(** Custom encoders for an OCaml type, given both custom conversion
+    functions. The actual representation is not known in advance, so
+    the conversion functions have to examine / construct the JSON
+    value through the first class modules they are passed. The [read]
+    transformer function can [raise (Cannot_destruct ([], "message"))]
+    to indicate an error, which will be relocated correctly.
+
+    Here is an example of how to build such a value for a type ['t].
+
+    {[ let read
+         : type tf. (module Json_repr.Repr with type value = tf) -> tf -> 't
+         = fun (module Repr_f) repr ->
+           match Repr_f.view repr with
+           | `Null (* destruct the JSON using [Repr_f.view] *) ->
+             (* create a value of type 't *)
+           | _ ->
+             (* or fail with this wrapping exception *)
+             raise (Cannot_destruct ([ (* location *) ], (* exn *))) in
+       let write
+         : type tf. (module Json_repr.Repr with type value = tf) -> 't -> tf
+         = fun (module Repr_f) v ->
+           (* examine the value and produce a JSON using [Repr_f.repr] *)
+           Repr_f.repr `Null in
+       { read ; write } ]} *)
+type 't repr_agnostic_custom =
+  { write : 'rt. (module Json_repr.Repr with type value = 'rt) -> 't -> 'rt ;
+    read : 'rf. (module Json_repr.Repr with type value = 'rf) -> 'rf -> 't }
+
+(** A custom encoding, using custom encoders and a schema. *)
+val repr_agnostic_custom :
+  't repr_agnostic_custom ->
+  schema: Json_schema.schema ->
+  't encoding
+
+(** A raw JSON value in its original representation. *)
+val any_value : Json_repr.any encoding

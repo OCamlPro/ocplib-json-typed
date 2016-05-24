@@ -235,9 +235,9 @@ module Make (Repr : Json_repr.Repr) = struct
           invalid_arg "Json_schema.to_json: remaining dummy element"
         | Any -> [] end @
       set_if_some "default" default (fun j ->
-          Repr.view (Json_repr.from_any (module Repr) j)) @
+          Repr.view (Json_repr.any_to_repr (module Repr) j)) @
       set_if_some "enum" enum (fun js ->
-          `A (List.map (Json_repr.from_any (module Repr)) js)) @
+          `A (List.map (Json_repr.any_to_repr (module Repr)) js)) @
       set_if_some "format" format (fun s -> `String s) in
     List.fold_left
       (fun acc (n, elt) -> insert n (obj (format_element elt)) acc)
@@ -407,10 +407,10 @@ module Make (Repr : Json_repr.Repr) = struct
         let title = opt_string_field json "title" in
         let description = opt_string_field json "description" in
         let default = match opt_field json "default" with
-          | Some v -> Some (Json_repr.to_any (module Repr) v)
+          | Some v -> Some (Json_repr.repr_to_any (module Repr) v)
           | None -> None in
         let enum =match opt_array_field json "enum" with
-          | Some v -> Some (List.map (Json_repr.to_any (module Repr)) v)
+          | Some v -> Some (List.map (Json_repr.repr_to_any (module Repr)) v)
           | None -> None in
         let format = opt_string_field json "format" in (* TODO: check format ? *)
         (* combine all specifications under a big conjunction *)
@@ -725,4 +725,4 @@ module Make (Repr : Json_repr.Repr) = struct
       max_length = None }
 end
 
-include Make (Json_repr)
+include Make (Json_repr.Ezjsonm)

@@ -184,16 +184,18 @@ val string_specs : string_specs
 
 (** {2 JSON Serialization} *)
 
-module Make (Repr : Json_repr.Repr) : sig
+(** Formats a JSON schema as its JSON representation.
 
-  (** Formats a JSON schema as its JSON representation. *)
-  val to_json : schema -> Repr.value
+    This function works with JSON data represented in the {!Json_repr.ezjsonm}
+    format. See functor {!Make} for using another representation. *)
+val to_json : schema -> Json_repr.ezjsonm
 
-  (** Parse a JSON structure as a JSON schema, if possible.
-      May throw {!Cannot_parse}. *)
-  val of_json : Repr.value -> schema
+(** Parse a JSON structure as a JSON schema, if possible.
+    May throw {!Cannot_parse}.
 
-end
+    This function works with JSON data represented in the {!Json_repr.ezjsonm}
+    format. See functor {!Make} for using another representation. *)
+val of_json : Json_repr.ezjsonm -> schema
 
 (** {2 Errors} *) (**********************************************************)
 
@@ -218,5 +220,14 @@ val print_error
   : ?print_unknown: (Format.formatter -> exn -> unit) ->
   Format.formatter -> exn -> unit
 
-(** By default, use {!Json_repr.Ezjsonm} *)
-include module type of Make (Json_repr)
+(** {2 Advanced interface for using a custom JSON representation} *) (**********)
+
+module Make (Repr : Json_repr.Repr) : sig
+
+  (** Same as {!to_json} for a custom JSON representation. *)
+  val to_json : schema -> Repr.value
+
+  (** Same as {!of_json} for a custom JSON representation. *)
+  val of_json : Repr.value -> schema
+
+end

@@ -103,26 +103,31 @@ type yojson =
 (** A view over the {!yojson} representation.*)
 module Yojson : Repr with type value = yojson
 
-(** By default, use {!Ezjsonm} *)
-include module type of Ezjsonm
-
-(** Conversion helper. *)
-val from_yojson : [< yojson ] -> [> value ]
-
-(** Conversion helper. *)
-val to_yojson : [< value] -> [> yojson ]
-
 (** {2 Representation-agnostic JSON format} *) (********************************)
 
 (** A meta-representation for JSON values that can unify values of
     different representations by boxing them with their corresponding
     {!Repr} modules. *)
-type any = Value_with_repr: (module Repr with type value = 'a) * 'a -> any
+type any = private Value_with_repr: (module Repr with type value = 'a) * 'a -> any
 
 (** Converts a boxed value from its intrinsic representation to the
     one of the given {!Repr} module. Optimized if the internal
     representation of the value actually is the requested one. *)
-val from_any : (module Repr with type value = 'a) -> any -> 'a
+val any_to_repr : (module Repr with type value = 'a) -> any -> 'a
 
 (** Boxes a value with a compatible {!Repr} module. *)
-val to_any : (module Repr with type value = 'a) -> 'a -> any
+val repr_to_any : (module Repr with type value = 'a) -> 'a -> any
+
+(** {2 Predefined converters for {!ezjsonm} *) (********************************)
+
+(** Conversion helper. *)
+val from_yojson : [< yojson ] -> [> ezjsonm ]
+
+(** Conversion helper. *)
+val to_yojson : [< ezjsonm] -> [> yojson ]
+
+(** Converts a boxed value from its representation to {!ezjsonm}. *)
+val from_any : any -> [> ezjsonm ]
+
+(** Boxes as {!ezjsonm} value. *)
+val to_any : [< ezjsonm] -> any

@@ -79,8 +79,6 @@ module Yojson = struct
 end
 type yojson = Yojson.value
 
-include Ezjsonm
-
 let convert
   : type tt tf.
     (module Repr with type value = tf) ->
@@ -108,7 +106,7 @@ let from_yojson non_basic =
     | `Null -> `Null
     | `Bool b -> `Bool b in
   (* Rename `Assoc, `Int and `List *)
-  let rec to_value : 'a. _ -> ([> value ] as 'a) = function
+  let rec to_value : 'a. _ -> ([> ezjsonm ] as 'a) = function
     | `List l -> `A (List.map to_value l)
     | `Assoc l -> `O (List.map (fun (key, value) -> (key, to_value value)) l)
     | `Int i -> `Float (float_of_int i)
@@ -136,13 +134,20 @@ let rec to_yojson json =
     | `Bool b -> `Bool b
     | `String s -> `String s
     | `Null -> `Null
-  in aux (json :> value)
+  in aux (json :> ezjsonm)
 
 type any = Value_with_repr: (module Repr with type value = 'a) * 'a -> any
 
-let from_any :
+let any_to_repr :
   type tt. (module Repr with type value = tt) -> any -> tt =
   fun repr_t (Value_with_repr (repr_f, v)) -> convert repr_f repr_t v
 
-let to_any repr v =
+let repr_to_any repr v =
   Value_with_repr (repr, v)
+
+let from_any : 'a. any -> ([> ezjsonm] as 'a) = fun repr ->
+  let res = any_to_repr (module Ezjsonm) repr in
+  (res : ezjsonm :> [> ezjsonm])
+
+let to_any v =
+  Value_with_repr ((module Ezjsonm), (v :> ezjsonm))

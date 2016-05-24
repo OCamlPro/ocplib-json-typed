@@ -39,7 +39,7 @@ let unexpected kind expected =
     | `Bool _ -> "boolean" in
   Cannot_destruct ([], Unexpected (kind, expected))
 
-type 't custom =
+type 't repr_agnostic_custom =
   { write : 'rt. (module Json_repr.Repr with type value = 'rt) -> 't -> 'rt ;
     read : 'rf. (module Json_repr.Repr with type value = 'rf) -> 'rf -> 't }
 
@@ -57,7 +57,7 @@ type _ encoding =
   | Objs : 'a encoding * 'b encoding -> ('a * 'b) encoding
   | Tup : 'a encoding -> 'a encoding
   | Tups : 'a encoding * 'b encoding -> ('a * 'b) encoding
-  | Custom : 't custom * Json_schema.schema -> 't encoding
+  | Custom : 't repr_agnostic_custom * Json_schema.schema -> 't encoding
   | Conv : ('a -> 'b) * ('b -> 'a) * 'b encoding * Json_schema.schema option -> 'a encoding
   | Describe : string option * string option * 'a encoding -> 'a encoding
   | Mu : string * ('a encoding -> 'a encoding) -> 'a encoding
@@ -263,7 +263,7 @@ module Make (Repr : Json_repr.Repr) = struct
     Custom ({ read ; write }, schema)
 end
 
-module Json_repr_encoding = Make (Json_repr)
+module Ezjsonm_encoding = Make (Json_repr.Ezjsonm)
 
 let schema encoding =
   let open Json_schema in
@@ -277,7 +277,7 @@ let schema encoding =
       | Obj (Req (n, t)) -> [ n, schema t, true, None ]
       | Obj (Opt (n, t)) -> [ n, schema t, false, None ]
       | Obj (Dft (n, t, d)) ->
-        let d = Json_repr.to_any (module Json_repr) (Json_repr_encoding.construct t d) in
+        let d = Json_repr.repr_to_any (module Json_repr.Ezjsonm) (Ezjsonm_encoding.construct t d) in
         [ n, schema t, false, Some d]
       | Objs (o1, o2) -> object_schema o1 @ object_schema o2
       | Conv (_, _, _, Some _) (* We could do better *)
@@ -442,14 +442,14 @@ let tup10 f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 =
     (let rest = Tups (Tup f6, Tups (Tup f7, Tups (Tup f8, Tups (Tup f9, Tup f10)))) in
      Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, rest))))))
 
-let custom' { write ; read } ~schema =
+let repr_agnostic_custom { write ; read } ~schema =
   Custom ({ write ; read }, schema)
 
 let describe ?title ?description t = Describe (title, description, t)
 
 let string_enum cases =
   let specs = Json_schema.({ pattern = None ; min_length = 0 ; max_length = None }) in
-  let enum = List.map (fun (s, _) -> Json_repr.(to_any (module Ezjsonm)) (`String s)) cases in
+  let enum = List.map (fun (s, _) -> Json_repr.(repr_to_any (module Ezjsonm)) (`String s)) cases in
   let rcases = List.map (fun (s, c) -> (c, s)) cases in
   conv
     (fun v -> try List.assoc v rcases with Not_found ->
@@ -468,40 +468,60 @@ let string_enum cases =
     string
 
 let def name encoding =
-  Json_repr_encoding.custom
-    (Json_repr_encoding.construct encoding)
-    (Json_repr_encoding.destruct encoding)
+  Ezjsonm_encoding.custom
+    (Ezjsonm_encoding.construct encoding)
+    (Ezjsonm_encoding.destruct encoding)
     (let open Json_schema in
      let sch = schema encoding in
      let sch, def = add_definition name (root sch) sch in
      update def sch)
 
 let assoc : type t. t encoding -> (string * t) list encoding = fun t ->
-  Json_repr_encoding.custom
-    (fun l -> `O (List.map (fun (n, v) -> n, Json_repr_encoding.construct t v) l))
+  Ezjsonm_encoding.custom
+    (fun l -> `O (List.map (fun (n, v) -> n, Ezjsonm_encoding.construct t v) l))
     (fun v -> match v with
        | `O l ->
          let destruct n t v = try
-             Json_repr_encoding.destruct t v
+             Ezjsonm_encoding.destruct t v
            with Cannot_destruct (p, exn) -> raise (Cannot_destruct (`Field n :: p, exn)) in
          List.map (fun (n, v) -> n, destruct n t v) l
-       | #Json_repr.value as k -> raise (unexpected k "asssociative object"))
+       | #Json_repr.ezjsonm as k -> raise (unexpected k "asssociative object"))
     (let s = schema t in
      Json_schema.(update (element (Object { object_specs with additional_properties = Some (root s)})) s))
 
 let option : type t. t encoding -> t option encoding = fun t ->
-  Json_repr_encoding.custom
-    (function None -> `Null | Some v -> Json_repr_encoding.construct t v)
-    (fun v -> match v with `Null -> None | _ -> Some (Json_repr_encoding.destruct t v))
-    (let s = schema t in
-     Json_schema.(update (element (Combine (One_of, [(root s) ; element Null]))) s))
+  let read
+    : type tf. (module Json_repr.Repr with type value = tf) -> tf -> t option
+    = fun (module Repr_f) repr ->
+      match Repr_f.view repr with
+      | `Null -> None
+      | _ ->
+        let module Repr_f_encoding = Make (Repr_f) in
+        Some (Repr_f_encoding.destruct t repr) in
+  let write
+    : type tf. (module Json_repr.Repr with type value = tf) -> t option -> tf
+    = fun (module Repr_f) v ->
+      match v with
+      | None -> Repr_f.repr `Null
+      | Some v ->
+        let module Repr_f_encoding = Make (Repr_f) in
+        Repr_f_encoding.construct t v in
+  let schema =
+    let s = schema t in
+    Json_schema.(update (element (Combine (One_of, [(root s) ; element Null]))) s) in
+  Custom ({ read ; write }, schema)
 
 let int32 =
   Conv (Int32.to_float, Int32.of_float, float, None)
 
 let any_value =
-  let read repr v = Json_repr.to_any repr v in
-  let write repr v = Json_repr.from_any repr v in
+  let read repr v = Json_repr.repr_to_any repr v in
+  let write repr v = Json_repr.any_to_repr repr v in
+  Custom ({ read ; write }, Json_schema.any)
+
+let any_ezjson_value =
+  let read repr v = Json_repr.convert repr (module Json_repr.Ezjsonm) v in
+  let write repr v = Json_repr.convert (module Json_repr.Ezjsonm) repr v in
   Custom ({ read ; write }, Json_schema.any)
 
 let any_document =
@@ -510,13 +530,13 @@ let any_document =
     = fun (module Repr) v ->
       match Repr.view v with
       | `A _ | `O _ ->
-        Json_repr.to_any (module Repr) v
+        Json_repr.repr_to_any (module Repr) v
       | k -> raise @@ unexpected k "array or object" in
-  let write repr v = Json_repr.from_any repr v in
+  let write repr v = Json_repr.any_to_repr repr v in
   Custom ({ read ; write }, Json_schema.any)
 
 let any_schema =
-  Json_repr_encoding.custom
+  Ezjsonm_encoding.custom
     Json_schema.to_json
     (fun j -> try Json_schema.of_json j with err ->
         raise (Cannot_destruct ([], Bad_schema err)))
@@ -651,4 +671,4 @@ let rec print_error ?print_unknown ppf = function
   | exn ->
     Json_schema.print_error ?print_unknown ppf exn
 
-include Json_repr_encoding
+include Ezjsonm_encoding

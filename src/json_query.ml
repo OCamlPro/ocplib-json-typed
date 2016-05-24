@@ -266,4 +266,4 @@ let rec print_error ?print_unknown ppf err = match err with
     | None ->
       Format.fprintf ppf "Unhandled error %s" (Printexc.to_string exn)
 
-include Make (Json_repr)
+include Make (Json_repr.Ezjsonm)

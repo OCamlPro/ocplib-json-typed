@@ -63,46 +63,57 @@ val path_of_json_pointer : ?wildcards: bool -> string -> path
 
 (** {2 Querying JSON documents} *) (*******************************************)
 
-module Make (Repr : Json_repr.Repr) : sig
+(** Extracts the value located at a given path. If multiple locations
+    satisfy the path (in presence of wildcard path items), the chosen
+    one is unspecified. May throw [Not_found].
 
-  (** Extracts the value located at a given path. If multiple locations
-      satisfy the path (in presence of wildcard path items), the chosen
-      one is unspecified. May throw [Not_found]. *)
-  val query : path -> Repr.value -> Repr.value
+    This function works with JSON data represented in the {!Json_repr.ezjsonm}
+    format. See functor {!Make} for using another representation. *)
+val query : path -> Json_repr.ezjsonm -> Json_repr.ezjsonm
 
-  (** Extracts the values located at a given path (may be more than one
-      in presence of wildcard path items). The order is unspecified. *)
-  val query_all : path -> Repr.value -> Repr.value list
+(** Extracts the values located at a given path (may be more than one
+    in presence of wildcard path items). The order is unspecified.
 
-  (** Insert a value at a given path. If multiple locations satisfy the
-      path (in presence of wildcard path items), the chosen one is
-      unspecified. Will create parent objects or arrays if needed, for
-      instance inserting [3] at [/a/b/c] in [{}] will result in
-      [{"a":{"b":{"c":3}}}]. Inserting in an array at an index bigger
-      than the previous size will expand the array, filling potential
-      missing cells with [`Null]. Inserting in an array at [`Index n]
-      where [n] is negative inserts from the last element of the
-      array. If a value is inserted at a location where there is already
-      one, both are merged as if with {!merge}. May throw
-      {!Cannot_merge} if the path is incompatible with the original
-      object (such as inserting in a field of something which is not an
-      object) or if the value is to be merged with an incompatible
-      existing value. *)
-  val insert : path -> Repr.value -> Repr.value -> Repr.value
+    This function works with JSON data represented in the {!Json_repr.ezjsonm}
+    format. See functor {!Make} for using another representation. *)
+val query_all : path -> Json_repr.ezjsonm -> Json_repr.ezjsonm list
 
-  (** Same as {!insert}, except that if the path leads to a pre-existing
-      value, it is replaced with the new one instead of being merged. *)
-  val replace : path -> Repr.value -> Repr.value -> Repr.value
+(** Insert a value at a given path. If multiple locations satisfy the
+    path (in presence of wildcard path items), the chosen one is
+    unspecified. Will create parent objects or arrays if needed, for
+    instance inserting [3] at [/a/b/c] in [{}] will result in
+    [{"a":{"b":{"c":3}}}]. Inserting in an array at an index bigger
+    than the previous size will expand the array, filling potential
+    missing cells with [`Null]. Inserting in an array at [`Index n]
+    where [n] is negative inserts from the last element of the
+    array. If a value is inserted at a location where there is already
+    one, both are merged as if with {!merge}. May throw
+    {!Cannot_merge} if the path is incompatible with the original
+    object (such as inserting in a field of something which is not an
+    object) or if the value is to be merged with an incompatible
+    existing value.
 
-  (** Merges two compatible JSON values. Merges [`Null] with any JSON
-      value. Merges two deeply equal values together. Merges two objects
-      by merging their common fields and adding all the others. Merges
-      two arrays by merging their common cells pairwise and adding the
-      remaining ones if one array is bigger than the other. May throw
-      {!Cannot_merge}. *)
-  val merge : Repr.value -> Repr.value -> Repr.value
+    This function works with JSON data represented in the {!Json_repr.ezjsonm}
+    format. See functor {!Make} for using another representation. *)
+val insert : path -> Json_repr.ezjsonm -> Json_repr.ezjsonm -> Json_repr.ezjsonm
 
-end
+(** Same as {!insert}, except that if the path leads to a pre-existing
+    value, it is replaced with the new one instead of being merged.
+
+    This function works with JSON data represented in the {!Json_repr.ezjsonm}
+    format. See functor {!Make} for using another representation. *)
+val replace : path -> Json_repr.ezjsonm -> Json_repr.ezjsonm -> Json_repr.ezjsonm
+
+(** Merges two compatible JSON values. Merges [`Null] with any JSON
+    value. Merges two deeply equal values together. Merges two objects
+    by merging their common fields and adding all the others. Merges
+    two arrays by merging their common cells pairwise and adding the
+    remaining ones if one array is bigger than the other. May throw
+    {!Cannot_merge}.
+
+    This function works with JSON data represented in the {!Json_repr.ezjsonm}
+    format. See functor {!Make} for using another representation. *)
+val merge : Json_repr.ezjsonm -> Json_repr.ezjsonm -> Json_repr.ezjsonm
 
 (** {2 Errors} *) (**********************************************************)
 
@@ -123,5 +134,22 @@ val print_error
   : ?print_unknown: (Format.formatter -> exn -> unit) ->
   Format.formatter -> exn -> unit
 
-(** By default, use {!Json_repr.Ezjsonm} *)
-include module type of Make (Json_repr.Ezjsonm)
+(** {2 Advanced interface for using a custom JSON representation} *) (**********)
+
+module Make (Repr : Json_repr.Repr) : sig
+
+  (** Same as {!query} for a custom JSON representation. *)
+  val query : path -> Repr.value -> Repr.value
+
+  (** Same as {!query_all} for a custom JSON representation. *)
+  val query_all : path -> Repr.value -> Repr.value list
+
+  (** Same as {!insert} for a custom JSON representation. *)
+  val insert : path -> Repr.value -> Repr.value -> Repr.value
+
+  (** Same as {!replace} for a custom JSON representation. *)
+  val replace : path -> Repr.value -> Repr.value -> Repr.value
+
+  (** Same as {!merge} for a custom JSON representation. *)
+  val merge : Repr.value -> Repr.value -> Repr.value
+end
