@@ -1,4 +1,4 @@
-(* Representations of JSON documents *)
+(* Queries in JSON documents *)
 
 (************************************************************************)
 (*  ocplib-json-typed                                                   *)

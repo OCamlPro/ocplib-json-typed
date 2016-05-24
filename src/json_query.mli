@@ -1,4 +1,4 @@
-(** Representations of JSON documents *)
+(** Queries in JSON documents *)
 
 (************************************************************************)
 (*  ocplib-json-typed                                                   *)
@@ -16,7 +16,6 @@
 (*  GNU General Public License for more details.                        *)
 (*                                                                      *)
 (************************************************************************)
-
 
 (** {2 Paths in JSON documents} *) (*****************************************)
 
@@ -152,4 +151,5 @@ module Make (Repr : Json_repr.Repr) : sig
 
   (** Same as {!merge} for a custom JSON representation. *)
   val merge : Repr.value -> Repr.value -> Repr.value
+
 end

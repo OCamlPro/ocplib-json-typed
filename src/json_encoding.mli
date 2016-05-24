@@ -32,10 +32,9 @@
 
     This encoding serves three purposes:
 
-      1. Output an OCaml value of type ['a] to an intermediate JSON represntation
-         using {!construct}. To be printed to actual JSON using an external
-         library. The intermediate structure is compatible with {!Ezjsonm.value},
-         but {!Json_repr} provides converters for use with {!Yojson.Safe.json}.
+      1. Output an OCaml value of type ['a] to an intermediate JSON
+         representation using {!construct}. To be printed to actual
+         JSON using an external library.
       2. Input a JSON intermediate structure (already parsed with an external
          library) to produce an OCaml value of type ['a].
       3. Describe this encoding in JSON-schema format for inter-operability:
@@ -43,8 +42,9 @@
          machine-readable descriptions of the formats as a byproduct.
          Specific documentation combinators are provided for that purpose.
 
-    Encodings do not care about the representation for JSON data.
-    However, by default, this module uses the {!Json_repr.ezjsonm} data type.
+    By default, this library provides functions that work on the
+    {!Json_repr.ezjsonm} data type, compatible with {!Ezjsonm.value}.
+    However, encodings are not tied with this representation.
     See functor {!Make} and module {!Json_repr} for using another format. *)
 type 'a encoding
 
