@@ -61,11 +61,16 @@ type _ encoding =
   | Conv : ('a -> 'b) * ('b -> 'a) * 'b encoding * Json_schema.schema option -> 'a encoding
   | Describe : string option * string option * 'a encoding -> 'a encoding
   | Mu : string * ('a encoding -> 'a encoding) -> 'a encoding
+  | Union : 't case list -> 't encoding
 
 and _ field =
   | Req : string * 'a encoding -> 'a field
   | Opt : string * 'a encoding -> 'a option field
   | Dft : string * 'a encoding * 'a -> 'a field
+
+and 't case =
+  | Case : 'a encoding * ('t -> 'a option) * ('a -> 't) -> 't case
+
 
 (*-- construct / destruct / schema over the nain GADT forms ------------------*)
 
@@ -115,7 +120,16 @@ module Make (Repr : Json_repr.Repr) = struct
           (function (v1, v2) ->
            match Repr.view (w1 v1), Repr.view (w2 v2) with
            | `A l1, `A l2 -> Repr.repr (`A (l1 @ l2))
-           | _ -> invalid_arg "Json_encoding.construct: consequence of bad merge_tups") in
+           | _ -> invalid_arg "Json_encoding.construct: consequence of bad merge_tups")
+        | Union cases ->
+          (fun v ->
+             let rec do_cases = function
+               | [] -> invalid_arg "Json_encoding.construct: consequence of bad union"
+               | Case (encoding, fto, _) :: rest ->
+                 match fto v with
+                 | Some v -> construct encoding v
+                 | None -> do_cases rest in
+             do_cases cases) in
     construct enc v
 
   let rec destruct
@@ -184,6 +198,14 @@ module Make (Repr : Json_repr.Repr) = struct
                raise (Cannot_destruct ([], Bad_array_size (len, i)))
              else r cells
            | k -> raise @@ unexpected k "array")
+      | Union cases ->
+        (fun v ->
+           let rec do_cases errs = function
+             | [] -> raise (Cannot_destruct ([], No_case_matched (List.rev errs)))
+             | Case (encoding, _, ffrom) :: rest ->
+               try ffrom (destruct encoding v) with
+                 err -> do_cases (err :: errs) rest in
+           do_cases [] cases)
   and destruct_tup
     : type t. int -> t encoding -> (Repr.value array -> t) * int
     = fun i t -> match t with
@@ -249,6 +271,16 @@ module Make (Repr : Json_repr.Repr) = struct
         (fun fields ->
            let r, rest, ign = d fields in
            fto r, rest, ign)
+      | Union cases ->
+        (fun fields ->
+           let rec do_cases errs = function
+             | [] -> raise (Cannot_destruct ([], No_case_matched (List.rev errs)))
+             | Case (encoding, _, ffrom) :: rest ->
+               try
+                 let r, rest, ign = destruct_obj encoding fields in
+                 ffrom r, rest, ign
+               with err -> do_cases (err :: errs) rest in
+           do_cases [] cases)
       | _ -> invalid_arg "Json_encoding.destruct: consequence of bad merge_objs"
 
   let custom write read ~schema =
@@ -268,19 +300,26 @@ module Ezjsonm_encoding = Make (Json_repr.Ezjsonm)
 let schema encoding =
   let open Json_schema in
   let sch = ref any in
+  let rec (@@) l1 l2 = match l1 with
+    | [] -> []
+    | e :: es -> (List.map (fun l -> e @ l) l2) @ (es @@ l2) in
   let rec object_schema
-    : type t. t encoding -> (string * element * bool * Json_repr.any option) list
+    : type t. t encoding -> (string * element * bool * Json_repr.any option) list list
     = function
       | Conv (_, _, o, None) -> object_schema o
-      | Empty -> []
-      | Ignore -> []
-      | Obj (Req (n, t)) -> [ n, schema t, true, None ]
-      | Obj (Opt (n, t)) -> [ n, schema t, false, None ]
+      | Empty -> [ [] ]
+      | Ignore -> [ [] ]
+      | Obj (Req (n, t)) -> [ [ n, schema t, true, None ] ]
+      | Obj (Opt (n, t)) -> [ [ n, schema t, false, None ] ]
       | Obj (Dft (n, t, d)) ->
         let d = Json_repr.repr_to_any (module Json_repr.Ezjsonm) (Ezjsonm_encoding.construct t d) in
-        [ n, schema t, false, Some d]
-      | Objs (o1, o2) -> object_schema o1 @ object_schema o2
-      | Conv (_, _, _, Some _) (* We could do better *)
+        [ [ n, schema t, false, Some d] ]
+      | Objs (o1, o2) -> object_schema o1 @@ object_schema o2
+      | Union cases ->
+        List.fold_left
+          (fun acc (Case (o, _, _)) -> object_schema o @@ acc)
+          [] cases
+      | Conv (_, _, _, Some _) (* FIXME: We could do better *)
       | _ -> invalid_arg "Json_encoding.schema: consequence of bad merge_objs"
   and array_schema
     : type t. t encoding -> element list
@@ -288,7 +327,7 @@ let schema encoding =
       | Conv (_, _, o, None) -> array_schema o
       | Tup t -> [ schema t ]
       | Tups (t1, t2) -> array_schema t1 @ array_schema t2
-      | Conv (_, _, _, Some _) (* We could do better *)
+      | Conv (_, _, _, Some _) (* FIXME: We could do better *)
       | _ -> invalid_arg "Json_encoding.schema: consequence of bad merge_tups"
   and schema
     : type t. t encoding -> element
@@ -326,10 +365,32 @@ let schema encoding =
         sch := nsch ; def
       | Array t ->
         element (Monomorphic_array (schema t, array_specs))
-      | Obj _ as o -> element (Object { object_specs with properties = object_schema o })
-      | Objs _ as o -> element (Object { object_specs with properties = object_schema o })
+      | Objs _ as o ->
+        begin match object_schema o with
+          | [ properties ] -> element (Object { object_specs with properties })
+          | more ->
+            let elements =
+              List.map
+                (fun properties -> element (Object { object_specs with properties }))
+                more in
+            element (Combine (One_of, elements))
+        end
+      | Obj _ as o ->
+        begin match object_schema o with
+          | [ properties ] -> element (Object { object_specs with properties })
+          | more ->
+            let elements =
+              List.map
+                (fun properties -> element (Object { object_specs with properties }))
+                more in
+            element (Combine (One_of, elements))
+        end
       | Tup _ as t -> element (Array (array_schema t, array_specs))
-      | Tups _ as t -> element (Array (array_schema t, array_specs)) in
+      | Tups _ as t -> element (Array (array_schema t, array_specs))
+      | Union cases -> (* FIXME: smarter merge *)
+        let elements =
+          List.map (fun (Case (encoding, _, _)) -> schema encoding) cases in
+        element (Combine (One_of, elements)) in
   let schema = schema encoding in
   update schema !sch
 
@@ -556,12 +617,14 @@ let list t =
   Conv (Array.of_list, Array.to_list, Array t, None)
 
 let merge_objs o1 o2 =
+  (* FIXME: check fields unicity *)
   let rec is_obj : type t. t encoding -> bool = function
     | Obj _ -> true
     | Objs _ (* by construction *) -> true
     | Conv (_, _, t, None) -> is_obj t
     | Empty -> true
     | Ignore -> true
+    | Union cases -> List.for_all (fun (Case (o, _, _)) -> is_obj o) cases
     | _ -> false in
   if is_obj o1 && is_obj o2 then
     Objs (o1, o2)
@@ -574,40 +637,14 @@ let empty =
 let unit =
   Ignore
 
-type 't case = Case : 'a encoding * ('t -> 'a option) * ('a -> 't) -> 't case
-
 let case encoding fto ffrom =
   Case (encoding, fto, ffrom)
 
 let union = function
   | [] -> invalid_arg "Json_encoding.union"
-  | (l : 't case list) ->
-    let write
-      : type tt. (module Json_repr.Repr with type value = tt) -> 't -> tt
-      = fun (module Repr) v ->
-        let module Repr_encoding = Make (Repr) in
-        let rec do_cases = function
-          | [] -> invalid_arg "Json_encoding.union"
-          | Case (encoding, fto, _) :: rest ->
-            match fto v with
-            | Some v -> Repr_encoding.construct encoding v
-            | None -> do_cases rest in
-        do_cases l in
-    let read
-      : type tt. (module Json_repr.Repr with type value = tt) -> tt -> 't
-      = fun (module Repr) v ->
-        let module Repr_encoding = Make (Repr) in
-        let rec do_cases errs = function
-          | [] -> raise (Cannot_destruct ([], No_case_matched (List.rev errs)))
-          | Case (encoding, _, ffrom) :: rest ->
-            try ffrom (Repr_encoding.destruct encoding v) with
-              err -> do_cases (err :: errs) rest in
-        do_cases [] l in
-    Custom
-      ({ read ; write },
-       Json_schema.combine
-         Json_schema.One_of
-         (List.map (fun (Case (encoding, _, _)) -> schema encoding) l))
+  | cases ->
+    (* FIXME: check mutual exclusion *)
+    Union cases
 
 let rec print_error ?print_unknown ppf = function
   | Cannot_destruct ([], exn) ->
