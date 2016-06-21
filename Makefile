@@ -4,7 +4,7 @@ MLI = $(patsubst %, src/%.mli, $(MODULES))
 CMX = $(patsubst %, src/%.cmx, $(MODULES))
 CMO = $(patsubst %, src/%.cmo, $(MODULES))
 CMI = $(patsubst %, src/%.cmi, $(MODULES))
-PACKAGES= 'uri'
+PACKAGES= 'ocplib-endian,uri'
 SAFE_STRING = $(shell if ocamlc -safe-string 2> /dev/null ; then echo "-safe-string" ; fi)
 
 OPTS = -bin-annot -g $(SAFE_STRING) -I src -package $(PACKAGES)
