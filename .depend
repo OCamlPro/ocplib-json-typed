@@ -1,0 +1,17 @@
+src/json_repr.cmo : src/json_repr.cmi
+src/json_repr.cmx : src/json_repr.cmi
+src/json_query.cmo : src/json_repr.cmi src/json_query.cmi
+src/json_query.cmx : src/json_repr.cmx src/json_query.cmi
+src/json_schema.cmo : src/json_repr.cmi src/json_query.cmi \
+    src/json_schema.cmi
+src/json_schema.cmx : src/json_repr.cmx src/json_query.cmx \
+    src/json_schema.cmi
+src/json_encoding.cmo : src/json_schema.cmi src/json_repr.cmi \
+    src/json_query.cmi src/json_encoding.cmi
+src/json_encoding.cmx : src/json_schema.cmx src/json_repr.cmx \
+    src/json_query.cmx src/json_encoding.cmi
+src/json_repr.cmi :
+src/json_query.cmi : src/json_repr.cmi
+src/json_schema.cmi : src/json_repr.cmi src/json_query.cmi
+src/json_encoding.cmi : src/json_schema.cmi src/json_repr.cmi \
+    src/json_query.cmi

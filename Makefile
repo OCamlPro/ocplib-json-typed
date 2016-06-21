@@ -40,7 +40,7 @@ test/test.asm: src/ocplib_json_typed.cmxa test/test.ml
 -include .depend
 
 .depend: $(ML) $(MLI) test/test.ml Makefile
-	ocamlfind ocamldep -I src -package $(PACKAGES) -native $(ML) $(MLI) > $@
+	ocamlfind ocamldep -I src -package $(PACKAGES) $(ML) $(MLI) > $@
 
 doc: $(MLIS)
 	-mkdir doc
