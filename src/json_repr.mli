@@ -37,6 +37,20 @@ type 'a view =
   | `Null
     (** The [null] constant. *) ]
 
+(** Each representation must provide a unique identifier, obtained via
+    the {!uid} function. This identifier is used when converting
+    between representations, to optimize out a copy when converting
+    from a representation to itself. Beware that this optimization
+    relies only on this [uid] token. Converting between values of the
+    same type using two different representation modules with
+    different [uid]s will perform a copy. A practical way to ensure
+    that the optimization is made is to write your representations as
+    toplevel modules, and not inside functors. *)
+type 'a repr_uid
+
+(** See {!type:uid}. *)
+val repr_uid : unit -> 'a repr_uid
+
 (** A view over a given implementation. *)
 module type Repr = sig
 
@@ -48,6 +62,9 @@ module type Repr = sig
 
   (** Builds a value from a view *)
   val repr : value view -> value
+
+  (** See {!type:uid}. *)
+  val repr_uid : value repr_uid
 
 end
 

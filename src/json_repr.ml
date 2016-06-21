@@ -25,10 +25,31 @@ type 'a view =
   | `String of string
   | `Null ]
 
+type 'a repr_uid = 'a option ref
+(* This is used for limiting conversions. When a value is converted
+   from a representation to another, which mostly happens when using
+   the {!type:any} boxing, such as when writing custom encodings, the
+   original value is usually traversed using the [view] of the
+   original representation, and recreated using the [repr] of the
+   destination representation. When converting from a representation
+   to itself, we want to optimize out this transformation, that is a
+   deep copy, and just get the same value. For this, we have to prove
+   to OCaml that it is indeed a value from the same representation.
+   To do that, we use the following trick. Each representation has a
+   bucket, the uid below. When converting from the original
+   representation, we put the value in its bucket. Then, we check the
+   bucket of the destination, and if it happens to be occupied, we
+   find in it the original value, under the destination type. Voilà. *)
+let repr_uid () = ref None
+let eq_repr_uid
+  : 'a -> 'a repr_uid -> 'b repr_uid -> 'b option
+  = fun a ta tb -> tb := None ; ta := Some a ; !tb
+
 module type Repr = sig
   type value
   val view : value -> value view
   val repr : value view -> value
+  val repr_uid : value repr_uid
 end
 
 module Ezjsonm = struct
@@ -41,6 +62,7 @@ module Ezjsonm = struct
     | `Null ]
   let view v = v
   let repr v = v
+  let repr_uid = repr_uid ()
 end
 
 type ezjsonm = Ezjsonm.value
@@ -76,6 +98,7 @@ module Yojson = struct
     | `Float f -> `Float f
     | `String s -> `String s
     | `Null -> `Null
+  let repr_uid = repr_uid ()
 end
 
 type yojson = Yojson.value
@@ -432,6 +455,8 @@ module Bson = struct
     end ;
     root
 
+  let repr_uid = repr_uid ()
+
 end
 
 type bson = Bson.value
@@ -451,11 +476,14 @@ let convert
     (module Repr with type value = tt) ->
     tf -> tt
   = fun (module Repr_f) (module Repr_t) v ->
-    let rec conv v = match Repr_f.view v with
-      | `Float _ | `Bool _ | `String _ | `Null as v -> Repr_t.repr v
-      | `A values -> Repr_t.repr (`A (List.map conv values))
-      | `O values -> Repr_t.repr (`O (List.map (fun (k, v) -> (k, conv v)) values)) in
-    conv v
+    match eq_repr_uid v Repr_f.repr_uid Repr_t.repr_uid with
+    | Some r -> r
+    | None ->
+      let rec conv v = match Repr_f.view v with
+        | `Float _ | `Bool _ | `String _ | `Null as v -> Repr_t.repr v
+        | `A values -> Repr_t.repr (`A (List.map conv values))
+        | `O values -> Repr_t.repr (`O (List.map (fun (k, v) -> (k, conv v)) values)) in
+      conv v
 
 let from_yojson non_basic =
   (* Delete `Variant, `Tuple and `Intlit *)
