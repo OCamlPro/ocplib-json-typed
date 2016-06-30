@@ -1,8 +1,30 @@
-version = "0.1"
+version = "0.4"
 description = "Reliable manipulation of JSON objects"
-requires = "ocplib-endian,uri"
+requires = "uri"
 archive(byte) = "ocplib_json_typed.cma"
 archive(byte, plugin) = "ocplib_json_typed.cma"
 archive(native) = "ocplib_json_typed.cmxa"
 archive(native, plugin) = "ocplib_json_typed.cmxs"
 exists_if = "ocplib_json_typed.cma"
+
+package "bson" (
+  version = "0.4"
+  description = "BSON representation of JSON documents"
+  requires = "ocplib-endian ocplib-json-typed"
+  archive(byte) = "ocplib_json_repr_bson.cma"
+  archive(byte, plugin) = "ocplib_json_repr_bson.cma"
+  archive(native) = "ocplib_json_repr_bson.cmxa"
+  archive(native, plugin) = "ocplib_json_repr_bson.cmxs"
+  exists_if = "ocplib_json_repr_bson.cma"
+)
+
+package "browser" (
+  version = "0.4"
+  description = "Native browser representation of JSON documents"
+  requires = "js_of_ocaml ocplib-json-typed"
+  archive(byte) = "ocplib_json_repr_browser.cma"
+  archive(byte, plugin) = "ocplib_json_repr_browser.cma"
+  archive(native) = "ocplib_json_repr_browser.cmxa"
+  archive(native, plugin) = "ocplib_json_repr_browser.cmxs"
+  exists_if = "ocplib_json_repr_browser.cma"
+)

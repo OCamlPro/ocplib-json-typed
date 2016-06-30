@@ -3,5 +3,5 @@ sudo: required
 install: wget https://raw.githubusercontent.com/ocaml/ocaml-travisci-skeleton/master/.travis-opam.sh
 script: bash -ex .travis-opam.sh
 env:
-  - PACKAGE="ocplib-json-typed" OCAML_VERSION="4.02" DEPOPTS="ocamlfind ocplib-endian uri"
-  - PACKAGE="ocplib-json-typed" OCAML_VERSION="4.03" DEPOPTS="ocamlfind ocplib-endian uri"
+  - PACKAGE="ocplib-json-typed" OCAML_VERSION="4.02" DEPOPTS="js_of_ocaml"
+  - PACKAGE="ocplib-json-typed" OCAML_VERSION="4.03" DEPOPTS="js_of_ocaml"

@@ -1,3 +1,5 @@
 PKG uri
 PKG yojson
 PKG ocplib-endian
+PKG js_of_ocaml
+EXT js

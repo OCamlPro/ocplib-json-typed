@@ -1,28 +1,55 @@
-MODULES = json_repr json_query json_schema json_encoding
-ML = $(patsubst %, src/%.ml, $(MODULES))
-MLI = $(patsubst %, src/%.mli, $(MODULES))
-CMX = $(patsubst %, src/%.cmx, $(MODULES))
-CMO = $(patsubst %, src/%.cmo, $(MODULES))
-CMI = $(patsubst %, src/%.cmi, $(MODULES))
-PACKAGES= 'ocplib-endian,uri'
+MAIN_MODULES = json_repr json_query json_schema json_encoding
+BSON_MODULES = json_repr_bson
+ALL_MODULES = $(MAIN_MODULES) $(BSON_MODULES)
+ALL = \
+  src/ocplib_json_typed.cmxa \
+  src/ocplib_json_typed.cmxs \
+  src/ocplib_json_typed.cma \
+  src/ocplib_json_repr_bson.cmxa \
+  src/ocplib_json_repr_bson.cmxs \
+  src/ocplib_json_repr_bson.cma
+
+PACKAGES = ocplib-endian uri
 SAFE_STRING = $(shell if ocamlc -safe-string 2> /dev/null ; then echo "-safe-string" ; fi)
 
-OPTS = -bin-annot -g $(SAFE_STRING) -I src -package $(PACKAGES)
+ifeq ($(shell if ocamlfind query js_of_ocaml 2> /dev/null >&2 ; then echo "YES" ; fi),YES)
+BROWSER_MODULES = json_repr_browser
+ALL_MODULES += $(BROWSER_MODULES)
+PACKAGES += js_of_ocaml
+ALL += src/ocplib_json_repr_browser.cma
+endif
+
+ML = $(patsubst %, src/%.ml, $(1))
+MLI = $(patsubst %, src/%.mli, $(1))
+CMX = $(patsubst %, src/%.cmx, $(1))
+CMO = $(patsubst %, src/%.cmo, $(1))
+CMI = $(patsubst %, src/%.cmi, $(1))
+
+OPTS = -bin-annot -g $(SAFE_STRING) -I src $(patsubst %, -package %, $(PACKAGES))
 
 .PHONY: all clean doc test
 
-all: \
-  src/ocplib_json_typed.cmxa \
-  src/ocplib_json_typed.cmxs \
-  src/ocplib_json_typed.cma
+all: $(ALL)
 
-src/ocplib_json_typed.cmxa: $(CMX)
+src/ocplib_json_typed.cmxa: $(call CMX, $(MAIN_MODULES))
 	ocamlfind ocamlopt $(OPTS) $^ -a -o $@
 
-src/ocplib_json_typed.cmxs: $(CMX)
+src/ocplib_json_typed.cmxs: $(call CMX, $(MAIN_MODULES))
 	ocamlfind ocamlopt $(OPTS) $^ -shared -o $@
 
-src/ocplib_json_typed.cma: $(CMO)
+src/ocplib_json_typed.cma: $(call CMO, $(MAIN_MODULES))
+	ocamlfind ocamlc $(OPTS) $^ -a -o $@
+
+src/ocplib_json_repr_bson.cmxa: $(call CMX, $(BSON_MODULES))
+	ocamlfind ocamlopt $(OPTS) $^ -a -o $@
+
+src/ocplib_json_repr_bson.cmxs: $(call CMX, $(BSON_MODULES))
+	ocamlfind ocamlopt $(OPTS) $^ -shared -o $@
+
+src/ocplib_json_repr_bson.cma: $(call CMO, $(BSON_MODULES))
+	ocamlfind ocamlc $(OPTS) $^ -a -o $@
+
+src/ocplib_json_repr_browser.cma: $(call CMO, $(BROWSER_MODULES))
 	ocamlfind ocamlc $(OPTS) $^ -a -o $@
 
 test/test.asm: src/ocplib_json_typed.cmxa test/test.ml
@@ -39,12 +66,22 @@ test/test.asm: src/ocplib_json_typed.cmxa test/test.ml
 
 -include .depend
 
-.depend: $(ML) $(MLI) test/test.ml Makefile
-	ocamlfind ocamldep -I src -package $(PACKAGES) $(ML) $(MLI) > $@
+.depend: \
+  $(call ML, $(ALL_MODULES)) \
+  $(call MLI, $(ALL_MODULES)) \
+  test/test.ml Makefile
+	ocamlfind ocamldep -I src \
+    $(patsubst %, -package %, $(PACKAGES)) \
+    $(call ML, $(ALL_MODULES)) \
+    $(call MLI, $(ALL_MODULES)) \
+  > $@
 
-doc: $(MLIS)
+doc: \
+  $(call MLI, $(ALL_MODULES))
 	-mkdir doc
-	ocamlfind ocamldoc  -html -d doc -package $(PACKAGES) $(MLIS)
+	ocamlfind ocamldoc -I src -html -d doc \
+    $(patsubst %, -package %, $(PACKAGES))\
+    $(call MLI, $(ALL_MODULES))
 
 clean:
 	-rm -f */*.cm* */*.o */*.a */*.so */*.dylib */*.dll */*~ *~
