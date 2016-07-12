@@ -40,7 +40,7 @@ module Repr = struct
     match Js.to_string (Js.typeof v) with
     | "string" -> `String (Js.to_string (Js.Unsafe.coerce v))
     | "number" -> `Float (Obj.magic v)
-    | "bool" -> `Bool (Js.to_bool (Obj.magic v))
+    | "boolean" -> `Bool (Js.to_bool (Obj.magic v))
     | "undefined" -> `Null (* Oh yeah! *)
     | "object" ->
         if v == Js.Unsafe.pure_js_expr "null" then
@@ -67,7 +67,7 @@ module Repr = struct
           `O (List.map
                 (fun f -> Js.to_string f, Js.Unsafe.get v f)
                 fields)
-    | _ -> invalid_arg "Browser_json.Repr.view"
+    | _ -> invalid_arg "Json_repr_browser.Repr.view"
 
   let repr_uid = Json_repr.repr_uid ()
 
