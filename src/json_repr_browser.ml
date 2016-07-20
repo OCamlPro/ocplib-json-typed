@@ -75,20 +75,26 @@ end
 
 type value = Repr.value
 
+let js_stringify ?indent obj =
+  Js.Unsafe.meth_call
+    (Js.Unsafe.variable "JSON")
+    "stringify"
+    (match indent with
+     | None ->
+       [| Js.Unsafe.inject obj |]
+     | Some indent ->
+       [| Js.Unsafe.inject obj ;
+          Js.Unsafe.inject Js.null ;
+          Js.Unsafe.inject indent |])
+
 let parse_js_string jsstr =
   Js.Unsafe.meth_call
     (Js.Unsafe.variable "JSON")
     "parse"
     [| Js.Unsafe.inject jsstr |]
 
-let js_stringify obj =
-  Js.Unsafe.meth_call
-    (Js.Unsafe.variable "JSON")
-    "stringify"
-    [| Js.Unsafe.inject obj |]
-
-let stringify obj =
-  Js.to_string (js_stringify obj)
+let stringify ?indent obj =
+  Js.to_string (js_stringify ?indent obj)
 
 let parse str =
   parse_js_string (Js.string str)

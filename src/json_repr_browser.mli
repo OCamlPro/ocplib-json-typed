@@ -32,11 +32,15 @@ module Json_query : module type of Json_query.Make (Repr)
 (** Parse a JSON string using the native browser parser. *)
 val parse : string -> value
 
-(** Produce a JSON string using the native browser printer. *)
-val stringify : value -> string
+(** Produce a JSON string using the native browser printer.
+
+    If indent is not present, everything is printed on a single line.
+    Otherwise, it is the number (up to 10) of spaces inserted at
+    beginning of lines for each indentation level. *)
+val stringify : ?indent: int -> value -> string
 
 (** Same as {!parse} with native browser strings. *)
 val parse_js_string : Js.js_string Js.t -> value
 
 (** Same as {!stringify} with native browser strings. *)
-val js_stringify : value -> Js.js_string Js.t
+val js_stringify : ?indent: int -> value -> Js.js_string Js.t
