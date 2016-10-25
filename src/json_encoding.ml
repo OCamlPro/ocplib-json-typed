@@ -28,7 +28,7 @@ exception Cannot_destruct of (Json_query.path * exn)
 (*-- types and errors --------------------------------------------------------*)
 
 let unexpected kind expected =
-  let kind =match kind with
+  let kind = match kind with
     | `O [] -> "empty object"
     | `A [] -> "empty array"
     | `O _ -> "object"
@@ -43,7 +43,15 @@ type 't repr_agnostic_custom =
   { write : 'rt. (module Json_repr.Repr with type value = 'rt) -> 't -> 'rt ;
     read : 'rf. (module Json_repr.Repr with type value = 'rf) -> 'rf -> 't }
 
-(* intermediate internal type without the polymorphic variant constraint *)
+(* The GADT definition for encodings. This type must be kept internal
+    because it does not encode all invariants. Some properties are
+    checked at encoding construction time by smart constructors, since
+    checking them would either be impossible, or would make the type
+    too complex. In a few corners that involve custom encodings using
+    user defined functions, some properties cannot be checked until
+    construction/destruction time. If such a run time check fails, is
+    denotes a programmer error and an [Invalid_argument] exceptions is
+    thus raised. *)
 type _ encoding =
   | Null : unit encoding
   | Empty : unit encoding
@@ -70,7 +78,6 @@ and _ field =
 
 and 't case =
   | Case : 'a encoding * ('t -> 'a option) * ('a -> 't) -> 't case
-
 
 (*-- construct / destruct / schema over the nain GADT forms ------------------*)
 
@@ -514,7 +521,7 @@ let string_enum cases =
   let rcases = List.map (fun (s, c) -> (c, s)) cases in
   conv
     (fun v -> try List.assoc v rcases with Not_found ->
-        invalid_arg "Json_encoding.string_enum")
+        invalid_arg "Json_encoding.construct: consequence of non exhaustive Json_encoding.string_enum")
     (fun s ->
        (try List.assoc s cases with Not_found ->
           let rec orpat ppf = function
