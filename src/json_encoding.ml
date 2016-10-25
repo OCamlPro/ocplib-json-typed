@@ -516,14 +516,25 @@ let repr_agnostic_custom { write ; read } ~schema =
 let describe ?title ?description t = Describe (title, description, t)
 
 let string_enum cases =
-  let specs = Json_schema.({ pattern = None ; min_length = 0 ; max_length = None }) in
-  let enum = List.map (fun (s, _) -> Json_repr.(repr_to_any (module Ezjsonm)) (`String s)) cases in
-  let rcases = List.map (fun (s, c) -> (c, s)) cases in
+  let schema =
+    let specs = Json_schema.({ pattern = None ; min_length = 0 ; max_length = None }) in
+    let enum = List.map (fun (s, _) -> Json_repr.(repr_to_any (module Ezjsonm)) (`String s)) cases in
+    Json_schema.(update { (element (String specs)) with enum = Some enum } any) in
+  let len = List.length cases in
+  let mcases = Hashtbl.create len
+  and rcases = Hashtbl.create len in
+  List.iter
+    (fun (s, c) ->
+       if Hashtbl.mem mcases s then
+         invalid_arg "Json_encoding.string_enum: duplicate case" ;
+       Hashtbl.add mcases s c ;
+       Hashtbl.add rcases c s)
+    cases ;
   conv
-    (fun v -> try List.assoc v rcases with Not_found ->
+    (fun v -> try Hashtbl.find rcases v with Not_found ->
         invalid_arg "Json_encoding.construct: consequence of non exhaustive Json_encoding.string_enum")
     (fun s ->
-       (try List.assoc s cases with Not_found ->
+       (try Hashtbl.find mcases s with Not_found ->
           let rec orpat ppf = function
             | [] -> assert false
             | [ last, _ ] -> Format.fprintf ppf "%S" last
@@ -532,7 +543,7 @@ let string_enum cases =
           let unexpected = Format.asprintf "string value %S" s in
           let expected = Format.asprintf "%a" orpat cases in
           raise (Cannot_destruct ([], Unexpected (unexpected, expected)))))
-    ~schema: Json_schema.(update { (element (String specs)) with enum = Some enum } any)
+    ~schema
     string
 
 let def name encoding =
