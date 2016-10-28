@@ -56,7 +56,7 @@ type _ encoding =
   | Null : unit encoding
   | Empty : unit encoding
   | Ignore : unit encoding
-  | Int : int encoding
+  | Int : 'a int_encoding -> 'a encoding
   | Bool : bool encoding
   | String : string encoding
   | Float : float encoding
@@ -71,6 +71,13 @@ type _ encoding =
   | Mu : string * ('a encoding -> 'a encoding) -> 'a encoding
   | Union : 't case list -> 't encoding
 
+and 'a int_encoding =
+  { name : string ;
+    of_float : float -> 'a ;
+    to_float : 'a -> float ;
+    lower_bound : 'a ;
+    upper_bound : 'a }
+
 and _ field =
   | Req : string * 'a encoding -> 'a field
   | Opt : string * 'a encoding -> 'a option field
@@ -79,7 +86,7 @@ and _ field =
 and 't case =
   | Case : 'a encoding * ('t -> 'a option) * ('a -> 't) -> 't case
 
-(*-- construct / destruct / schema over the nain GADT forms ------------------*)
+(*-- construct / destruct / schema over the main GADT forms ------------------*)
 
 module Make (Repr : Json_repr.Repr) = struct
 
@@ -90,7 +97,11 @@ module Make (Repr : Json_repr.Repr) = struct
         | Null -> (fun () -> Repr.repr `Null)
         | Empty -> (fun () -> Repr.repr (`O []))
         | Ignore -> (fun () -> Repr.repr (`O []))
-        | Int -> (fun (i : t) -> Repr.repr (`Float (float  i)))
+        | Int { name ; to_float ; lower_bound ; upper_bound } ->
+          let err = "Json_encoding.construct: " ^ name ^ " out of range" in
+          (fun (i : t) ->
+             if i < lower_bound || i > upper_bound then invalid_arg err ;
+             Repr.repr (`Float (to_float  i)))
         | Bool -> (fun (b : t) -> Repr.repr (`Bool b))
         | String -> (fun s -> Repr.repr (`String s))
         | Float -> (fun f -> Repr.repr (`Float f))
@@ -148,7 +159,23 @@ module Make (Repr : Json_repr.Repr) = struct
           | `O [ f, _] -> raise (Cannot_destruct ([], Unexpected_field f))
           | k -> raise @@ unexpected k "an empty object")
       | Ignore -> (fun v -> match Repr.view v with _ -> ())
-      | Int -> (fun v -> match Repr.view v with `Float f -> int_of_float f | k -> raise (unexpected k "number"))
+      | Int { name ; of_float ; to_float ; lower_bound ; upper_bound } ->
+        let lower_bound = to_float lower_bound in
+        let upper_bound = to_float upper_bound in
+        (fun v ->
+           match Repr.view v with
+           | `Float v ->
+             let rest, v = modf v in
+             if rest <> 0. then begin
+               let exn = Failure (name ^ " cannot have a fractional part") in
+               raise (Cannot_destruct ([], exn))
+             end ;
+             if v < lower_bound || v > upper_bound then begin
+               let exn = Failure (name ^ " out of range") in
+               raise (Cannot_destruct ([], exn))
+             end ;
+             of_float v
+           | k -> raise (unexpected k "number"))
       | Bool -> (fun v -> match Repr.view v with `Bool b -> (b : t) | k -> raise (unexpected k "boolean"))
       | String -> (fun v -> match Repr.view v with `String s -> s | k -> raise (unexpected k "string"))
       | Float -> (fun v -> match Repr.view v with `Float f -> f | k -> raise (unexpected k "float"))
@@ -342,10 +369,13 @@ let schema encoding =
       | Null -> element Null
       | Empty -> element (Object { object_specs with additional_properties = None })
       | Ignore -> element Any
-      | Int -> element Integer
+      | Int { to_float ; lower_bound ; upper_bound } ->
+        let minimum = Some (to_float lower_bound, `Inclusive) in
+        let maximum = Some (to_float upper_bound, `Inclusive) in
+        element (Integer { multiple_of = None ; minimum ; maximum })
       | Bool -> element Boolean
       | String -> element (String string_specs)
-      | Float -> element Number
+      | Float -> element (Number numeric_specs)
       | Describe (None, None, t) -> schema t
       | Describe (Some _ as title, None, t) ->
         { (schema t) with title }
@@ -409,7 +439,18 @@ let dft ?title ?description n t d = Dft (n, Describe (title, description, t), d)
 
 let mu name self = Mu (name, self)
 let null = Null
-let int = Int
+let int =
+  Int { name = "int" ;
+        of_float = int_of_float ;
+        to_float = float_of_int ;
+        lower_bound = -(1 lsl 30) ;
+        upper_bound = (1 lsl 30) - 1 }
+let ranged_int ~minimum ~maximum name =
+  Int { name ;
+        of_float = int_of_float ;
+        to_float = float_of_int ;
+        lower_bound = minimum ;
+        upper_bound = maximum }
 let float = Float
 let string = String
 let conv ffrom fto ?schema t =
@@ -590,7 +631,11 @@ let option : type t. t encoding -> t option encoding = fun t ->
   Custom ({ read ; write }, schema)
 
 let int32 =
-  Conv (Int32.to_float, Int32.of_float, float, None)
+  Int { name = "int32" ;
+        of_float = Int32.of_float ;
+        to_float = Int32.to_float ;
+        lower_bound = Int32.min_int ;
+        upper_bound = Int32.max_int }
 
 let any_value =
   let read repr v = Json_repr.repr_to_any repr v in

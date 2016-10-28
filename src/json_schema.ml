@@ -77,7 +77,9 @@ and element_kind =
   | Id_ref of string
   | Ext_ref of Uri.t
   | String of string_specs
-  | Integer | Number | Boolean | Null | Any
+  | Integer of numeric_specs
+  | Number of numeric_specs
+  | Boolean | Null | Any
   | Dummy
 
 and combinator =
@@ -88,6 +90,11 @@ and array_specs =
     max_items : int option ;
     unique_items : bool ;
     additional_items : element option }
+
+and numeric_specs =
+  { multiple_of : float option ;
+    minimum : (float * [ `Inclusive | `Exclusive ]) option ;
+    maximum : (float * [ `Inclusive | `Exclusive ]) option }
 
 and object_specs =
   { properties : (string * element * bool * Json_repr.any option) list ;
@@ -218,10 +225,40 @@ module Make (Repr : Json_repr.Repr) = struct
           set_always "$ref" (`String ("#" ^ name))
         | Ext_ref uri ->
           set_always "$ref" (`String (Uri.to_string uri))
-        | Integer ->
-          set_always "type" (`String "integer")
-        | Number ->
-          set_always "type" (`String "number")
+        | Integer specs ->
+          set_always "type" (`String "integer") @
+          set_if_some "multipleOf" specs.multiple_of (fun v -> `Float v) @
+          (match specs.minimum with
+           | None -> []
+           | Some (v, `Inclusive) ->
+             [ "minimum", Repr.repr (`Float v) ]
+           | Some (v, `Exclusive) ->
+             [ "minimum", Repr.repr (`Float v) ;
+               "exclusiveMinimum", Repr.repr (`Bool true) ] ) @
+          (match specs.maximum with
+           | None -> []
+           | Some (v, `Inclusive) ->
+             [ "maximum", Repr.repr (`Float v) ]
+           | Some (v, `Exclusive) ->
+             [ "maximum", Repr.repr (`Float v) ;
+               "exclusiveMaximum", Repr.repr (`Bool true) ] )
+        | Number specs ->
+          set_always "type" (`String "number") @
+          set_if_some "multipleOf" specs.multiple_of (fun v -> `Float v) @
+          (match specs.minimum with
+           | None -> []
+           | Some (v, `Inclusive) ->
+             [ "minimum", Repr.repr (`Float v) ]
+           | Some (v, `Exclusive) ->
+             [ "minimum", Repr.repr (`Float v) ;
+               "exclusiveMinimum", Repr.repr (`Bool true) ] ) @
+          (match specs.maximum with
+           | None -> []
+           | Some (v, `Inclusive) ->
+             [ "maximum", Repr.repr (`Float v) ]
+           | Some (v, `Exclusive) ->
+             [ "maximum", Repr.repr (`Float v) ;
+               "exclusiveMaximum", Repr.repr (`Bool true) ] )
         | String { pattern ; min_length ; max_length } ->
           set_always "type" (`String "string") @
           set_if_neq "minLength" min_length 0 (fun i -> `Float (float i)) @
@@ -281,8 +318,12 @@ module Make (Repr : Json_repr.Repr) = struct
       | Some k -> raise (at_field n @@ unexpected k "bool")
       | None -> def in
     let opt_int_field obj n = match opt_field_view obj n with
-      | Some (`Float f) when floor f = f -> Some (int_of_float f)
+      | Some (`Float f) when (fst (modf f) = 0.) -> Some (int_of_float f)
       | Some k -> raise (at_field n @@ unexpected k "integer")
+      | None -> None in
+    let opt_float_field obj n = match opt_field_view obj n with
+      | Some (`Float f) -> Some f
+      | Some k -> raise (at_field n @@ unexpected k "number")
       | None -> None in
     let opt_array_field obj n = match opt_field_view obj n with
       | Some (`A s) -> Some s
@@ -426,9 +467,38 @@ module Make (Repr : Json_repr.Repr) = struct
     and parse_element_kind
       : type a. Uri.t -> Repr.value -> string -> element_kind
       = fun source json name ->
+        let numeric_specs json =
+          let multiple_of = opt_float_field json "multipleOf" in
+          let minimum =
+            if opt_bool_field false json "exclusiveMinimum" then
+              match opt_float_field json "minimum" with
+              | None -> None
+              | Some v -> Some (v, `Inclusive)
+            else
+              match opt_float_field json "minimum" with
+              | None ->
+                let err =
+                  "minimum field required when exclusiveMinimum is true" in
+                raise (Failure err)
+              | Some v -> Some (v, `Exclusive) in
+          let maximum =
+            if opt_bool_field false json "exclusiveMaximum" then
+              match opt_float_field json "maximum" with
+              | None -> None
+              | Some v -> Some (v, `Inclusive)
+            else
+              match opt_float_field json "maximum" with
+              | None ->
+                let err =
+                  "maximum field required when exclusiveMaximum is true" in
+                raise (Failure err)
+              | Some v -> Some (v, `Exclusive) in
+          { multiple_of ; minimum ; maximum} in
         match name with
-        | "integer" -> Integer
-        | "number" -> Number
+        | "integer" ->
+          Integer (numeric_specs json)
+        | "number" ->
+          Number (numeric_specs json)
         | "boolean" -> Boolean
         | "null" -> Null
         | "string" ->
@@ -602,7 +672,7 @@ module Make (Repr : Json_repr.Repr) = struct
             raise (Dangling_reference (Uri.(with_fragment empty) (Some path)))
         | Id_ref id ->
           collected_id_refs := id :: !collected_id_refs ;
-        | Ext_ref _ | String _ | Integer | Number | Boolean | Null | Any | Dummy -> ()
+        | Ext_ref _ | String _ | Integer _ | Number _ | Boolean | Null | Any | Dummy -> ()
       end in
     (* check the root and definitions *)
     check root ;
@@ -654,7 +724,7 @@ module Make (Repr : Json_repr.Repr) = struct
       | Def_ref path ->
         let def = find_definition path schema.definitions in
         res := insert_definition path def !res
-      | Ext_ref _ | Id_ref _ | String _ | Integer | Number | Boolean | Null | Any | Dummy -> ()
+      | Ext_ref _ | Id_ref _ | String _ | Integer _ | Number _ | Boolean | Null | Any | Dummy -> ()
     in
     collect schema.root ;
     { schema with definitions = !res }
@@ -723,6 +793,10 @@ module Make (Repr : Json_repr.Repr) = struct
     { pattern = None ;
       min_length = 0 ;
       max_length = None }
+  let numeric_specs =
+    { multiple_of = None ;
+      minimum = None ;
+      maximum = None }
 end
 
 include Make (Json_repr.Ezjsonm)

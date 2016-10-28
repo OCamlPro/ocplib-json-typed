@@ -38,6 +38,8 @@ let () = register_test "recursion" @@ fun () ->
       let print_unknown ppf = function
         | Ezjsonm.Parse_error (_, err) ->
           Format.fprintf ppf "%s" err
+        | Failure msg ->
+          Format.fprintf ppf "%s" msg
         | exn -> raise exn in
       Format.eprintf "%a@." (print_error ~print_unknown) err ;
       main () in
@@ -71,6 +73,8 @@ let () = register_test "simple" @@ fun () ->
       let print_unknown ppf = function
         | Ezjsonm.Parse_error (_, err) ->
           Format.fprintf ppf "%s" err
+        | Failure msg ->
+          Format.fprintf ppf "%s" msg
         | exn -> raise exn in
       Format.eprintf "%a@." (print_error ~print_unknown) err ;
       main () in

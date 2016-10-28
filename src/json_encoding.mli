@@ -74,8 +74,25 @@ val null : unit encoding
 (** An encoding of an OCaml unit by an empty JSON object. *)
 val empty : unit encoding
 
-(** An encoding of an OCaml int by a JSON number. *)
+(** An encoding of an OCaml int by a JSON number.
+
+    When destructing, the JSON number cannot have a fractional part,
+    and must be between [-2^30] and [2^30-1] (these bounds are chosen
+    to be compatible with both 32-bit and 64bit native OCaml compilers
+    as well as JavaScript). When constructing, the value coming from
+    the OCaml world is assumed to be valid, otherwise an
+    [Invalid_argument] will be raised.
+
+    Use {!ranged_int} or {!int32} for better portability. *)
 val int : int encoding
+
+(** An encoding of an OCaml int by a JSON number.
+
+    The inclusive bounds are checked when destructing. When
+    constructing, the value coming from the OCaml world is assumed to
+    be valid, otherwise an [Invalid_argument] will be raised. The
+    string parameter is a name used to tweak the error messages. *)
+val ranged_int : minimum: int -> maximum: int -> string -> int encoding
 
 (** An encoding of an OCaml int32 by a JSON number. *)
 val int32 : int32 encoding

@@ -56,9 +56,12 @@ and element_kind =
   (** A ref to an element from its ID. *)
   | Ext_ref of Uri.t
   (** A ref to an external element. *)
-  | String of string_specs (** A string (with optional characteristics). *)
-  | Integer (** Any int. *)
-  | Number (** Any number. *)
+  | String of string_specs
+  (** A string (with optional characteristics). *)
+  | Integer of numeric_specs
+  (** An int (with optional characteristics). *)
+  | Number of numeric_specs
+  (** A float (with optional characteristics). *)
   | Boolean  (** Any boolean. *)
   | Null (** The null value. *)
   | Any (** Any JSON value. *)
@@ -86,6 +89,15 @@ and array_specs =
     (** Teels if all elements must be different. *)
     additional_items : element option ;
     (** The type of additional items, if allowed. *) }
+
+(** Parameters of the [Integer] and [Number] type specifiers. *)
+and numeric_specs =
+  { multiple_of : float option ;
+    (** An optional divisor of valid values *)
+    minimum : (float * [ `Inclusive | `Exclusive ]) option ;
+    (** The optional lower bound of the numeric range *)
+    maximum : (float * [ `Inclusive | `Exclusive ]) option
+    (** The optional upper bound of the numeric range *) }
 
 (** Parameters of the [Object] type specifier. *)
 and object_specs =
@@ -181,6 +193,9 @@ val object_specs : object_specs
 
 (** Default parameters of the [String] type specifier. *)
 val string_specs : string_specs
+
+(** Default parameters of the [Integer] and [Number] type specifiers. *)
+val numeric_specs : numeric_specs
 
 (** {2 JSON Serialization} *)
 
