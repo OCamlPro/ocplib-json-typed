@@ -371,7 +371,7 @@ module Repr = struct
     end ;
     root
 
-  let repr_uid = repr_uid ()
+  let repr_uid : value Json_repr.repr_uid = repr_uid ()
 
 end
 
