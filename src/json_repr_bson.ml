@@ -107,7 +107,7 @@ module Repr = struct
         skip (fieldlen + 1) ;
         res in
       let deserialized =
-        if !length <= 5 then
+        if !length < 5 then
           error "not enough data for size and terminator" ;
         let size = Int32.to_int (LEB.get_int32 buffer !offset) in
         if size <> !length then
