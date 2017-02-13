@@ -472,26 +472,26 @@ module Make (Repr : Json_repr.Repr) = struct
           let minimum =
             if opt_bool_field false json "exclusiveMinimum" then
               match opt_float_field json "minimum" with
-              | None -> None
-              | Some v -> Some (v, `Inclusive)
-            else
-              match opt_float_field json "minimum" with
               | None ->
                 let err =
                   "minimum field required when exclusiveMinimum is true" in
                 raise (Failure err)
+              | Some v -> Some (v, `Inclusive)
+            else
+              match opt_float_field json "minimum" with
+              | None -> None
               | Some v -> Some (v, `Exclusive) in
           let maximum =
             if opt_bool_field false json "exclusiveMaximum" then
-              match opt_float_field json "maximum" with
-              | None -> None
-              | Some v -> Some (v, `Inclusive)
-            else
               match opt_float_field json "maximum" with
               | None ->
                 let err =
                   "maximum field required when exclusiveMaximum is true" in
                 raise (Failure err)
+              | Some v -> Some (v, `Inclusive)
+            else
+              match opt_float_field json "maximum" with
+              | None -> None
               | Some v -> Some (v, `Exclusive) in
           { multiple_of ; minimum ; maximum} in
         match name with
