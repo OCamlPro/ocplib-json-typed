@@ -1,6 +1,6 @@
 opam-version: "1.2"
 name: "ocplib-json-typed"
-version: "0.4"
+version: "0.5"
 maintainer: "Benjamin Canou <benjamin@ocamlpro.com>"
 authors: "Benjamin Canou <benjamin@ocamlpro.com>"
 homepage: "https://github.com/ocamlpro/ocplib-json-typed"
@@ -15,9 +15,9 @@ install: [make "install"]
 remove: [make "uninstall"]
 depopts: [
   "js_of_ocaml"
+  "ocplib-endian"
 ]
 depends: [
   "ocamlfind" {build}
   "uri" {>= "1.9.0" }
-  "ocplib-endian"
 ]

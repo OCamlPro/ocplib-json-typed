@@ -12,6 +12,7 @@
 
 *~
 */*~
+doc/
 
 # ocamlbuild working directory
 _build/

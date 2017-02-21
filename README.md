@@ -21,7 +21,17 @@ This library is a collection of type-aware JSON utilities for OCaml.
 The type of JSON documents handled by this library is directly
 compatible with `ezjsonm`, but converters are provided for `yojson`
 users, and an advanced functorial interface allows you to use any JSON
-representation (for instance the Web browser's objects).
+representation. Two other representations are also provided.
+
+  - `Json_repr_browser` interfaces JavaScripts objects. It is
+    available only when compiling to JavaScript via
+    `js_of_ocaml`. Users of `ocamlfind` can use the
+    `ocplib-json-typed.browser` subpackage. OPAM users must have
+    `js_of_ocaml` installed for this module to be available.
+  - `Json_repr_bson` is an implementation of a subset of BSON.
+    Users of `ocamlfind` can use the
+    `ocplib-json-typed.bson` subpackage. OPAM users must have
+    `ocplib-endian` installed for this module to be available.
 
 Thanks to polymorphic variants, this library does not depend on any
 JSON library, so you are free to use whichever you want for printing
