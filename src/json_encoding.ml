@@ -208,8 +208,8 @@ module Make (Repr : Json_repr.Repr) = struct
            | `O fields ->
              let r, rest, ign = d fields in
              begin match rest with
-               | [] -> r
-               | (field, _) :: _ -> raise @@ Unexpected_field field
+               | (field, _) :: _ when not ign -> raise @@ Unexpected_field field
+               | _ -> r
              end
            | k -> raise @@ unexpected k "object")
       | Tup _ as t ->
