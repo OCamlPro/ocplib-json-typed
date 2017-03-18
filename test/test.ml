@@ -26,8 +26,8 @@ let () = register_test "recursion" @@ fun () ->
                 (fun (hd, tl) -> hd :: tl) ]) in
   let output_f =
     obj1 (req "contents" (list int)) in
-  to_channel stdout (Json_schema.to_json (schema (input_f int))) ;
-  to_channel stdout (Json_schema.to_json (schema output_f)) ;
+  Format.printf "@[<v 2>Input:@,%a@." Json_schema.pp (schema (input_f int)) ;
+  Format.printf "@[<v 2>Output:@,%a@." Json_schema.pp (schema output_f) ;
   let rec main () =
     try
       let json = Ezjsonm.from_channel stdin in
@@ -61,8 +61,8 @@ let () = register_test "simple" @@ fun () ->
     (obj2
        (req "X" int)
        (opt "Y" int)) in
-  to_channel stdout (Json_schema.to_json (schema input_f)) ;
-  to_channel stdout (Json_schema.to_json (schema output_f)) ;
+  Format.printf "@[<v 2>Input:@,%a@." Json_schema.pp (schema input_f) ;
+  Format.printf "@[<v 2>Output:@,%a@." Json_schema.pp (schema output_f) ;
   let rec main () =
     try
       let json = Ezjsonm.from_channel stdin in
