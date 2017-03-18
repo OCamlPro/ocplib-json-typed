@@ -334,21 +334,24 @@ module Ezjsonm_encoding = Make (Json_repr.Ezjsonm)
 let schema encoding =
   let open Json_schema in
   let sch = ref any in
+  let (@@@) (l1, b1) (l2, b2) =
+    l1 @ l2, b1 || b2  in
   let rec (@@) l1 l2 = match l1 with
     | [] -> []
-    | e :: es -> (List.map (fun l -> e @ l) l2) @ (es @@ l2) in
+    | e :: es -> (List.map (fun l -> e @@@ l) l2) @ (es @@ l2) in
   let rec object_schema
-    : type t. t encoding -> (string * element * bool * Json_repr.any option) list list
+    : type t. t encoding -> ((string * element * bool * Json_repr.any option) list * bool) list
     = function
       | Conv (_, _, o, None) -> object_schema o
-      | Empty -> [ [] ]
-      | Ignore -> [ [] ]
-      | Obj (Req (n, t)) -> [ [ n, schema t, true, None ] ]
-      | Obj (Opt (n, t)) -> [ [ n, schema t, false, None ] ]
+      | Empty -> [ [], false ]
+      | Ignore -> [ [], true ]
+      | Obj (Req (n, t)) -> [ [ n, schema t, true, None ], false ]
+      | Obj (Opt (n, t)) -> [ [ n, schema t, false, None ], false ]
       | Obj (Dft (n, t, d)) ->
         let d = Json_repr.repr_to_any (module Json_repr.Ezjsonm) (Ezjsonm_encoding.construct t d) in
-        [ [ n, schema t, false, Some d] ]
-      | Objs (o1, o2) -> object_schema o1 @@ object_schema o2
+        [ [ n, schema t, false, Some d], false ]
+      | Objs (o1, o2) ->
+        object_schema o1 @@ object_schema o2
       | Union cases ->
         List.fold_left
           (fun acc (Case (o, _, _)) -> object_schema o @@ acc)
@@ -404,21 +407,29 @@ let schema encoding =
         element (Monomorphic_array (schema t, array_specs))
       | Objs _ as o ->
         begin match object_schema o with
-          | [ properties ] -> element (Object { object_specs with properties })
+          | [ properties, ext ] ->
+            let additional_properties = if ext then Some (element Any) else None in
+            element (Object { object_specs with properties ; additional_properties })
           | more ->
             let elements =
               List.map
-                (fun properties -> element (Object { object_specs with properties }))
+                (fun (properties, ext) ->
+                   let additional_properties = if ext then Some (element Any) else None in
+                   element (Object { object_specs with properties ; additional_properties }))
                 more in
             element (Combine (One_of, elements))
         end
       | Obj _ as o ->
         begin match object_schema o with
-          | [ properties ] -> element (Object { object_specs with properties })
+          | [ properties, ext ] ->
+            let additional_properties = if ext then Some (element Any) else None in
+            element (Object { object_specs with properties ; additional_properties })
           | more ->
             let elements =
               List.map
-                (fun properties -> element (Object { object_specs with properties }))
+                (fun (properties, ext) ->
+                   let additional_properties = if ext then Some (element Any) else None in
+                   element (Object { object_specs with properties ; additional_properties }))
                 more in
             element (Combine (One_of, elements))
         end
