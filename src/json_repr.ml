@@ -118,6 +118,63 @@ let convert
         | `O values -> Repr_t.repr (`O (List.map (fun (k, v) -> (k, conv v)) values)) in
       conv v
 
+let pp_string ppf s =
+  Format.fprintf ppf "\"" ;
+  for i = 0 to String.length s - 1 do
+    match String.get s i with
+    | '\"' | '\n' | '\r' | '\b' | '\t' | '\\' as c -> Format.fprintf ppf "\\%c" c
+    | c -> Format.fprintf ppf "%c" c
+  done ;
+  Format.fprintf ppf "\""
+
+let pp
+    ?(compact = false) ?(pp_string = pp_string)
+    (type value) (module Repr : Repr with type value = value) ppf (v : value) =
+  let rec pp_compact ppf v = match Repr.view v with
+    | `O l ->
+      let pp_sep ppf () =
+        Format.fprintf ppf "," in
+      let pp_field ppf (name, v) =
+        Format.fprintf ppf "%a:%a"
+          pp_string name
+          pp_compact v in
+      Format.fprintf ppf "{%a}"
+        (Format.pp_print_list ~pp_sep pp_field)
+        l
+    | `A l ->
+      let pp_sep ppf () =
+        Format.fprintf ppf "," in
+      Format.fprintf ppf "[%a]"
+        (Format.pp_print_list ~pp_sep pp_compact) l
+    | `Bool true -> Format.fprintf ppf "true"
+    | `Bool false -> Format.fprintf ppf "false"
+    | `Float f ->  Format.fprintf ppf "%f" f
+    | `String s -> pp_string ppf s
+    | `Null -> Format.fprintf ppf "null" in
+  let rec pp_box ppf v = match Repr.view v with
+    | `O [] -> Format.fprintf ppf "{}"
+    | `O l ->
+      let pp_sep ppf () =
+        Format.fprintf ppf ",@ " in
+      let pp_field ppf (name, v) =
+        Format.fprintf ppf "@[<hov 2>%a:@ %a@]"
+          pp_string name
+          pp_box v in
+      Format.fprintf ppf "@[<hov 2>{ %a }@]"
+        (Format.pp_print_list ~pp_sep pp_field)
+        l
+    | `A [] -> Format.fprintf ppf "[]"
+    | `A l ->
+      let pp_sep ppf () =
+        Format.fprintf ppf ",@ " in
+      Format.fprintf ppf "@[<hov 2>[ %a ]@]"
+        (Format.pp_print_list ~pp_sep pp_box) l
+    | _ -> pp_compact ppf v in
+  if compact then
+    pp_compact ppf v
+  else
+    pp_box ppf v
+
 let from_yojson non_basic =
   (* Delete `Variant, `Tuple and `Intlit *)
   let rec to_basic non_basic = match non_basic with
@@ -164,6 +221,9 @@ let rec to_yojson json =
   in aux (json :> ezjsonm)
 
 type any = Value_with_repr: (module Repr with type value = 'a) * 'a -> any
+
+let pp_any ?compact ?pp_string () ppf (Value_with_repr (repr, v)) =
+  pp ?compact ?pp_string repr ppf v
 
 let any_to_repr :
   type tt. (module Repr with type value = tt) -> any -> tt =

@@ -74,6 +74,18 @@ val convert :
   (module Repr with type value = 'tt) ->
   'tf -> 'tt
 
+(** Generic pretty-printer. If [compact] is set (by default), then the
+    output is not really pretty (no space is output). Ascii-compatible
+    string encoding is expected, as printing only escapes double
+    quotes and control characters. Use [pp_string] for more advanced
+    escaping. This function does not claim to be the best JSON pretty
+    printer, it is mostly a small utility. *)
+val pp :
+  ?compact: bool -> ?pp_string: (Format.formatter -> string -> unit) ->
+  (module Repr with type value = 'tf) ->
+  Format.formatter -> 'tf -> unit
+
+
 (** {2 Third party in-memory JSON document representations} *) (****************)
 
 (** A JSON value compatible with {!Ezjsonm.value}. *)
@@ -134,6 +146,11 @@ val any_to_repr : (module Repr with type value = 'a) -> any -> 'a
 
 (** Boxes a value with a compatible {!Repr} module. *)
 val repr_to_any : (module Repr with type value = 'a) -> 'a -> any
+
+(** Pretty-printer for values of type {!any}. See {!pp} for details. *)
+val pp_any :
+  ?compact: bool -> ?pp_string: (Format.formatter -> string -> unit) -> unit ->
+  Format.formatter -> any -> unit
 
 (** {2 Predefined converters for {!type:ezjsonm}} *) (********************************)
 
