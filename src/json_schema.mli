@@ -197,7 +197,7 @@ val string_specs : string_specs
 (** Default parameters of the [Integer] and [Number] type specifiers. *)
 val numeric_specs : numeric_specs
 
-(** {2 JSON Serialization} *)
+(** {2 JSON Serialization} *) (*********************************************)
 
 (** Formats a JSON schema as its JSON representation.
 
@@ -211,6 +211,9 @@ val to_json : schema -> Json_repr.ezjsonm
     This function works with JSON data represented in the {!Json_repr.ezjsonm}
     format. See functor {!Make} for using another representation. *)
 val of_json : Json_repr.ezjsonm -> schema
+
+(** Formats a JSON schema in human readable format. *)
+val pp : Format.formatter -> schema -> unit
 
 (** {2 Errors} *) (**********************************************************)
 
