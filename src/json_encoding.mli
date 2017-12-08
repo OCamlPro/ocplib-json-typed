@@ -112,6 +112,9 @@ val bytes : bytes encoding
 (** An encoding of an OCaml float by a JSON number. *)
 val float : float encoding
 
+(** An encoding of an OCaml float by a JSON number with range constraints  *)
+val ranged_float : minimum:float -> maximum:float -> string -> float encoding
+
 (** An encoding of an OCaml option by a nullable JSON value. *)
 val option : 'a encoding -> 'a option encoding
 
