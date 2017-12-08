@@ -91,6 +91,7 @@ doc: all
 
 clean:
 	-rm -f */*.cm* */*.o */*.a */*.so */*.dylib */*.dll */*~ *~
+	-rm -f .depend
 	-rm -rf doc
 
 install: all doc
