@@ -9,6 +9,7 @@
 *.cmxa
 *.cmt
 *.cmti
+.depend
 
 *~
 */*~
