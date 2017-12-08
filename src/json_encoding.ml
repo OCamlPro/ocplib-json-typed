@@ -59,7 +59,7 @@ type _ encoding =
   | Int : 'a int_encoding -> 'a encoding
   | Bool : bool encoding
   | String : string encoding
-  | Float : float encoding
+  | Float : bounds option -> float encoding
   | Array : 'a encoding -> 'a array encoding
   | Obj : 'a field -> 'a encoding
   | Objs : 'a encoding * 'b encoding -> ('a * 'b) encoding
@@ -77,6 +77,9 @@ and 'a int_encoding =
     to_float : 'a -> float ;
     lower_bound : 'a ;
     upper_bound : 'a }
+
+and bounds = { minimum : float ;
+               maximum : float }
 
 and _ field =
   | Req : string * 'a encoding -> 'a field
@@ -104,7 +107,12 @@ module Make (Repr : Json_repr.Repr) = struct
              Repr.repr (`Float (to_float  i)))
         | Bool -> (fun (b : t) -> Repr.repr (`Bool b))
         | String -> (fun s -> Repr.repr (`String s))
-        | Float -> (fun f -> Repr.repr (`Float f))
+        | Float (Some { minimum ; maximum }) ->
+          let err = "Json_encoding.construct: float out of range" in
+          (fun float ->
+             if float < minimum || float > maximum then invalid_arg err ;
+             Repr.repr (`Float float))
+        | Float None -> (fun float -> Repr.repr (`Float float))
         | Describe (_, _, t) -> construct t
         | Custom ({ write }, _) -> (fun (j : t) -> write (module Repr) j)
         | Conv (ffrom, _, t, _) -> (fun v -> construct t (ffrom v))
@@ -178,7 +186,17 @@ module Make (Repr : Json_repr.Repr) = struct
            | k -> raise (unexpected k "number"))
       | Bool -> (fun v -> match Repr.view v with `Bool b -> (b : t) | k -> raise (unexpected k "boolean"))
       | String -> (fun v -> match Repr.view v with `String s -> s | k -> raise (unexpected k "string"))
-      | Float -> (fun v -> match Repr.view v with `Float f -> f | k -> raise (unexpected k "float"))
+      | Float None -> (fun v -> match Repr.view v with `Float f -> f | k -> raise (unexpected k "float"))
+      | Float (Some { minimum ; maximum }) ->
+        (fun v ->
+           match Repr.view v with
+           | `Float f ->
+             if f < minimum || f > maximum
+             then
+               let exn = Failure ("float out of range") in
+               raise (Cannot_destruct ([], exn))
+             else f
+           | k -> raise (unexpected k "float"))
       | Describe (_, _, t) -> destruct t
       | Custom ({ read }, _) -> read (module Repr)
       | Conv (_, fto, t, _) -> (fun v -> fto (destruct t v))
@@ -378,7 +396,11 @@ let schema encoding =
         element (Integer { multiple_of = None ; minimum ; maximum })
       | Bool -> element Boolean
       | String -> element (String string_specs)
-      | Float -> element (Number numeric_specs)
+      | Float (Some { minimum ; maximum }) ->
+        element (Number { multiple_of = None ;
+                          minimum = Some (minimum, `Inclusive) ;
+                          maximum = Some (maximum, `Inclusive) })
+      | Float None -> element (Number numeric_specs)
       | Describe (None, None, t) -> schema t
       | Describe (Some _ as title, None, t) ->
         { (schema t) with title }
@@ -462,7 +484,12 @@ let ranged_int ~minimum ~maximum name =
         to_float = float_of_int ;
         lower_bound = minimum ;
         upper_bound = maximum }
-let float = Float
+
+let ranged_float ~minimum ~maximum name =
+  Float (Some { minimum ;
+                maximum })
+
+let float = Float None
 let string = String
 let conv ffrom fto ?schema t =
   Conv (ffrom, fto, t, schema)
