@@ -37,7 +37,7 @@ CMI = $(patsubst %, src/%.cmi, $(1))
 
 OPTS = -bin-annot -g $(SAFE_STRING) -I src $(patsubst %, -package %, $(PACKAGES))
 
-.PHONY: all clean doc test
+.PHONY: all clean doc
 
 all: $(ALL)
 
@@ -62,9 +62,6 @@ src/ocplib_json_repr_bson.cma: $(call CMO, $(BSON_MODULES))
 src/ocplib_json_repr_browser.cma: $(call CMO, $(BROWSER_MODULES))
 	ocamlfind ocamlc $(OPTS) $^ -a -o $@
 
-test/test.asm: src/ocplib_json_typed.cmxa test/test.ml
-	ocamlfind ocamlopt $(OPTS) -package "ezjsonm" src/ocplib_json_typed.cmxa $^ -o $@ -linkpkg
-
 %.cmx: %.ml
 	ocamlfind ocamlopt $(OPTS) -c $<
 
@@ -79,7 +76,7 @@ test/test.asm: src/ocplib_json_typed.cmxa test/test.ml
 .depend: \
   $(call ML, $(ALL_MODULES)) \
   $(call MLI, $(ALL_MODULES)) \
-  test/test.ml Makefile
+  Makefile
 	ocamlfind ocamldep -I src \
     $(patsubst %, -package %, $(PACKAGES)) \
     $(call ML, $(ALL_MODULES)) \
@@ -94,10 +91,7 @@ doc: all
 
 clean:
 	-rm -f */*.cm* */*.o */*.a */*.so */*.dylib */*.dll */*~ *~
-	-rm -f test/test.asm
 	-rm -rf doc
-
-test: test/test.asm
 
 install: all doc
 	ocamlfind install ocplib-json-typed src/*
