@@ -185,6 +185,9 @@ module Make (Repr : Json_repr.Repr) = struct
       | Mu (name, self) -> destruct (self (Mu (name, self)))
       | Array t ->
         (fun v -> match Repr.view v with
+           | `O [] ->
+             (* Weak `Repr`s like BSON don't know the difference  *)
+             [||]
            | `A cells ->
              Array.mapi
                (fun i cell ->
