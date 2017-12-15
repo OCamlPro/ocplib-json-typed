@@ -115,6 +115,84 @@ let element kind =
   { title = None ; description = None ; default = None ; kind ;
     format = None ; enum = None ; id = None }
 
+(*-- equality --------------------------------------------------------------*)
+
+let option_map f = function None -> None | Some v -> Some (f v)
+
+let rec eq_element a b =
+  a.title = b.title &&
+  a.description = b.description &&
+  option_map Json_repr.from_any a.default =
+  option_map Json_repr.from_any b.default &&
+  option_map (List.map Json_repr.from_any) a.enum =
+  option_map (List.map Json_repr.from_any) b.enum &&
+  eq_kind a.kind b.kind &&
+  a.format = b.format &&
+  a.id = b.id
+
+and eq_kind a b = match a, b with
+  | Object aa, Object ab -> eq_object_specs aa ab
+  | Array (esa, sa), Array (esb, sb) ->
+    List.length esa = List.length esb &&
+    List.for_all2 eq_element esa esb &&
+    eq_array_specs sa sb
+  | Monomorphic_array (ea, sa), Monomorphic_array (eb, sb) ->
+    eq_element ea eb &&
+    eq_array_specs sa sb
+  | Combine (ca, esa), Combine (cb, esb) ->
+    ca = cb &&
+    List.length esa = List.length esb &&
+    List.for_all2 eq_element esa esb
+  | Def_ref pa, Def_ref pb -> pa = pb
+  | Id_ref ra, Id_ref rb -> ra = rb
+  | Ext_ref ra, Ext_ref rb -> ra = rb
+  | String sa, String sb -> sa = sb
+  | Integer na, Integer nb -> na = nb
+  | Number na, Number nb -> na = nb
+  | Boolean, Boolean -> true
+  | Null, Null -> true
+  | Any, Any -> true
+  | Dummy, Dummy -> true
+  | _ -> false
+
+and eq_object_specs a b =
+  a.min_properties = b.min_properties &&
+  a.max_properties = b.max_properties &&
+  List.sort compare a.property_dependencies =
+  List.sort compare b.property_dependencies &&
+  begin match a.additional_properties, b.additional_properties with
+    | Some a, Some b -> eq_element a b
+    | _, _ -> false
+  end &&
+  List.length a.pattern_properties =
+  List.length b.pattern_properties &&
+  List.for_all2
+    (fun (na, ea) (nb, eb) -> na = nb && eq_element ea eb)
+    (List.sort (fun (x, _) (y, _) -> compare x y) a.pattern_properties)
+    (List.sort (fun (x, _) (y, _) -> compare x y) b.pattern_properties) &&
+  List.length a.schema_dependencies =
+  List.length b.schema_dependencies &&
+  List.for_all2
+    (fun (na, ea) (nb, eb) -> na = nb && eq_element ea eb)
+    (List.sort (fun (x, _) (y, _) -> compare x y) a.schema_dependencies)
+    (List.sort (fun (x, _) (y, _) -> compare x y) b.schema_dependencies) &&
+  List.length a.properties =
+  List.length b.properties &&
+  List.for_all2
+    (fun (na, ea, ra, da) (nb, eb, rb, db) ->
+       na = nb && eq_element ea eb && ra = rb &&
+       option_map Json_repr.from_any da = option_map Json_repr.from_any db)
+    (List.sort (fun (x, _, _, _) (y, _, _, _) -> compare x y) a.properties)
+    (List.sort (fun (x, _, _, _) (y, _, _, _) -> compare x y) b.properties)
+
+and eq_array_specs a b =
+  a.min_items = b.min_items &&
+  a.max_items = b.max_items &&
+  a.unique_items = b.unique_items &&
+  match a.additional_items, b.additional_items with
+  | Some a, Some b -> eq_element a b
+  | _, _ -> false
+
 (*-- human readable output -------------------------------------------------*)
 
 let pp ppf schema =
@@ -1009,7 +1087,7 @@ module Make (Repr : Json_repr.Repr) = struct
     let rec sorted_merge = function
       | ((na, da) as a) :: ((nb, db) as b) :: tl ->
         if na = nb then
-          if da.kind = Dummy || db.kind = Dummy || da = db then
+          if da.kind = Dummy || db.kind = Dummy || eq_element da db then
             (na, da) :: sorted_merge tl
           else
             raise (Duplicate_definition na)
