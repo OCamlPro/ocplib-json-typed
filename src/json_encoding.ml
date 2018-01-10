@@ -605,6 +605,7 @@ let string_enum cases =
   let len = List.length cases in
   let mcases = Hashtbl.create len
   and rcases = Hashtbl.create len in
+  let cases_str = String.concat " " (List.map (fun x -> "'" ^ fst x ^ "'") cases) in
   List.iter
     (fun (s, c) ->
        if Hashtbl.mem mcases s then
@@ -614,7 +615,7 @@ let string_enum cases =
     cases ;
   conv
     (fun v -> try Hashtbl.find rcases v with Not_found ->
-        invalid_arg "Json_encoding.construct: consequence of non exhaustive Json_encoding.string_enum")
+        invalid_arg (Format.sprintf "Json_encoding.construct: consequence of non exhaustive Json_encoding.string_enum. Strings are: %s" cases_str))
     (fun s ->
        (try Hashtbl.find mcases s with Not_found ->
           let rec orpat ppf = function
