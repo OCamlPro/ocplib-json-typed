@@ -56,6 +56,7 @@ type _ encoding =
   | Null : unit encoding
   | Empty : unit encoding
   | Ignore : unit encoding
+  | Constant : string -> unit encoding
   | Int : 'a int_encoding -> 'a encoding
   | Bool : bool encoding
   | String : string encoding
@@ -100,6 +101,7 @@ module Make (Repr : Json_repr.Repr) = struct
         | Null -> (fun () -> Repr.repr `Null)
         | Empty -> (fun () -> Repr.repr (`O []))
         | Ignore -> (fun () -> Repr.repr (`O []))
+        | Constant str -> (fun () -> Repr.repr (`String str))
         | Int { name ; to_float ; lower_bound ; upper_bound } ->
           let err = "Json_encoding.construct: " ^ name ^ " out of range" in
           (fun (i : t) ->
@@ -167,6 +169,11 @@ module Make (Repr : Json_repr.Repr) = struct
           | `O [ f, _] -> raise (Cannot_destruct ([], Unexpected_field f))
           | k -> raise @@ unexpected k "an empty object")
       | Ignore -> (fun v -> match Repr.view v with _ -> ())
+      | Constant str ->
+        (fun v ->
+           match Repr.view v with
+           | `String s when s = str -> ()
+           | x -> raise @@ unexpected x str)
       | Int { name ; of_float ; to_float ; lower_bound ; upper_bound } ->
         let lower_bound = to_float lower_bound in
         let upper_bound = to_float upper_bound in
@@ -398,6 +405,9 @@ let schema encoding =
         let maximum = Some (to_float upper_bound, `Inclusive) in
         element (Integer { multiple_of = None ; minimum ; maximum })
       | Bool -> element Boolean
+      | Constant str ->
+        { (element (String string_specs)) with
+          enum = Some [ Json_repr.to_any (`String str) ] }
       | String -> element (String string_specs)
       | Float (Some { minimum ; maximum }) ->
         element (Number { multiple_of = None ;
@@ -596,6 +606,8 @@ let repr_agnostic_custom { write ; read } ~schema =
   Custom ({ write ; read }, schema)
 
 let describe ?title ?description t = Describe (title, description, t)
+
+let constant s = Constant s
 
 let string_enum cases =
   let schema =
