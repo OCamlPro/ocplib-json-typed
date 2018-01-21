@@ -106,6 +106,9 @@ val string : string encoding
 (** An encoding of a closed set of OCaml values by JSON strings. *)
 val string_enum : (string * 'a) list -> 'a encoding
 
+(** An encoding of a constant string. *)
+val constant : string -> unit encoding
+
 (** An encoding of an OCaml mutable string by a JSON string. *)
 val bytes : bytes encoding
 
