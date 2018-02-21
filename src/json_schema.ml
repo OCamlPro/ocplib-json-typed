@@ -162,6 +162,7 @@ and eq_object_specs a b =
   List.sort compare b.property_dependencies &&
   begin match a.additional_properties, b.additional_properties with
     | Some a, Some b -> eq_element a b
+    | None, None -> true
     | _, _ -> false
   end &&
   List.length a.pattern_properties =
@@ -191,6 +192,7 @@ and eq_array_specs a b =
   a.unique_items = b.unique_items &&
   match a.additional_items, b.additional_items with
   | Some a, Some b -> eq_element a b
+  | None, None -> true
   | _, _ -> false
 
 (*-- human readable output -------------------------------------------------*)
@@ -465,7 +467,7 @@ let insert_definition name elt defs =
     | (_, { kind = Dummy }) :: rem ->
       (name, elt) :: rem
     | (_, defelt) :: rem ->
-      if elt <> defelt then raise (Duplicate_definition name) ;
+      if not (eq_element elt defelt) then raise (Duplicate_definition name) ;
       (name, elt) :: rem in
   insert defs
 
