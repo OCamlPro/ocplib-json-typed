@@ -148,7 +148,15 @@ let pp
         (Format.pp_print_list ~pp_sep pp_compact) l
     | `Bool true -> Format.fprintf ppf "true"
     | `Bool false -> Format.fprintf ppf "false"
-    | `Float f ->  Format.fprintf ppf "%f" f
+    | `Float f ->
+      let (fract, intr) = modf f in
+      let (min_intf, max_intf) = (min_int |> float_of_int,
+                                  max_int |> float_of_int) in
+      if fract = 0.0 then
+        if intr >= min_intf && intr <= max_intf
+        then Format.fprintf ppf "%d" (int_of_float intr)
+        else Format.fprintf ppf "%.0f" intr
+      else Format.fprintf ppf "%f" f
     | `String s -> pp_string ppf s
     | `Null -> Format.fprintf ppf "null" in
   let rec pp_box ppf v = match Repr.view v with
