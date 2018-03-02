@@ -148,7 +148,12 @@ let pp
         (Format.pp_print_list ~pp_sep pp_compact) l
     | `Bool true -> Format.fprintf ppf "true"
     | `Bool false -> Format.fprintf ppf "false"
-    | `Float f ->  Format.fprintf ppf "%f" f
+    | `Float f ->
+      let fract, intr = modf f in
+      if fract = 0.0 then
+        Format.fprintf ppf "%.0f" intr
+      else
+        Format.fprintf ppf "%g" f
     | `String s -> pp_string ppf s
     | `Null -> Format.fprintf ppf "null" in
   let rec pp_box ppf v = match Repr.view v with
