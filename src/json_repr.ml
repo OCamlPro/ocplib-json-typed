@@ -207,9 +207,9 @@ let rec to_yojson json =
     | `O values ->
       `Assoc (List.map (fun (k, v) -> (k, aux v)) values)
     | `Float f ->
-      let (fract, intr) = modf f in
-      let (min_intf, max_intf) = (min_int |> float_of_int,
-                                  max_int |> float_of_int) in
+      let fract, intr = modf f in
+      let max_intf = float 0x3F_FF_FF_FF in
+      let min_intf = ~-. max_intf -. 1. in
       if fract = 0.0 then
         if intr >= min_intf && intr <= max_intf
         then `Int (int_of_float intr)
