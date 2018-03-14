@@ -231,7 +231,7 @@ exception Bad_reference of string
 exception Unexpected of string * string
 
 (** A non-[Dummy] definition appeared twice on insertion or merge. *)
-exception Duplicate_definition of Json_query.path
+exception Duplicate_definition of Json_query.path * element * element
 
 (** Produces a human readable version of an error. *)
 val print_error
