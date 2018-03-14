@@ -282,6 +282,7 @@ module Make (Repr : Json_repr.Repr) = struct
       | Conv (ffrom, fto, t, _) ->
         let r, i = destruct_tup i t in
         (fun arr -> fto (r arr)), i
+      | Mu (_, self) as mu -> destruct_tup i (self mu)
       | _ -> invalid_arg "Json_encoding.destruct: consequence of bad merge_tups"
   and destruct_obj
     : type t. t encoding -> (string * Repr.value) list -> t * (string * Repr.value) list * bool
@@ -333,6 +334,7 @@ module Make (Repr : Json_repr.Repr) = struct
         (fun fields ->
            let r, rest, ign = d fields in
            fto r, rest, ign)
+      | Mu (_, self) as mu -> destruct_obj (self mu)
       | Union cases ->
         (fun fields ->
            let rec do_cases errs = function
@@ -384,6 +386,7 @@ let schema encoding =
         List.fold_left
           (fun acc (Case (o, _, _)) -> object_schema o @@ acc)
           [] cases
+      | Mu (_, self) as mu -> object_schema (self mu)
       | Conv (_, _, _, Some _) (* FIXME: We could do better *)
       | _ -> invalid_arg "Json_encoding.schema: consequence of bad merge_objs"
   and array_schema
@@ -392,6 +395,7 @@ let schema encoding =
       | Conv (_, _, o, None) -> array_schema o
       | Tup t -> [ schema t ]
       | Tups (t1, t2) -> array_schema t1 @ array_schema t2
+      | Mu (_, self) as mu -> array_schema (self mu)
       | Conv (_, _, _, Some _) (* FIXME: We could do better *)
       | _ -> invalid_arg "Json_encoding.schema: consequence of bad merge_tups"
   and schema
@@ -724,6 +728,7 @@ let merge_tups t1 t2 =
     | Tup _ -> true
     | Tups _ (* by construction *) -> true
     | Conv (_, _, t, None) -> is_tup t
+    | Mu (_name, self) as mu -> is_tup (self mu)
     | _ -> false in
   if is_tup t1 && is_tup t2 then
     Tups (t1, t2)
@@ -742,6 +747,7 @@ let merge_objs o1 o2 =
     | Empty -> true
     | Ignore -> true
     | Union cases -> List.for_all (fun (Case (o, _, _)) -> is_obj o) cases
+    | Mu (_name, self) as mu -> is_obj (self mu)
     | _ -> false in
   if is_obj o1 && is_obj o2 then
     Objs (o1, o2)
