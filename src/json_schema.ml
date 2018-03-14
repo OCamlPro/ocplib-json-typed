@@ -21,34 +21,10 @@
 
 open Json_query
 
-exception Duplicate_definition of path
-exception Bad_reference of string
-exception Cannot_parse of path * exn
-exception Dangling_reference of Uri.t
-exception Unexpected of string * string
-
-let rec print_error ?print_unknown ppf = function
-  | Cannot_parse (path, exn) ->
-    Format.fprintf ppf
-      "@[<v 2>Schema parse error:@,At %a@,%a@]"
-      (Json_query.print_path_as_json_path ~wildcards:true) path
-      (print_error ?print_unknown) exn
-  | Dangling_reference uri ->
-    Format.fprintf ppf
-      "Dangling reference %s" (Uri.to_string uri)
-  | Bad_reference str ->
-    Format.fprintf ppf
-      "Illegal reference notation %s" str
-  | Unexpected (unex, ex) ->
-    Format.fprintf ppf
-      "Unexpected %s instead of %s" unex ex
-  | exn ->
-    Json_query.print_error ?print_unknown ppf exn
-
 (* The currently handled version *)
 let version = "http://json-schema.org/draft-04/schema#"
 
-(*-- types and errors ------------------------------------------------------*)
+(*-- types -----------------------------------------------------------------*)
 
 (* The root of a schema with the named definitions,
    a precomputed ID-element map and a cache for external documents. *)
@@ -197,227 +173,227 @@ and eq_array_specs a b =
 
 (*-- human readable output -------------------------------------------------*)
 
-let pp ppf schema =
-  let pp_string ppf s =
-    Json_repr.(pp (module Ezjsonm)) ppf (`String s) in
-  let pp_num ppf m =
-    if abs_float m < 1000. then
-      Format.fprintf ppf "%g" m
-    else
-      let pos, m =
-        if m < 0. then (false, ~-. m) else (true, m) in
-      if List.fold_left (fun acc d ->
-          if acc then acc else
-            let v = log (m +. d) /. log 2. in
-            if abs_float (ceil v -. v) < 0.00001 then begin
-              Format.fprintf ppf "%s2^%g" (if pos then "" else "-") v ;
-              if (pos && d < 0.) || (not pos && d > 0.) then
-                Format.fprintf ppf "+%g" (abs_float d) ;
-              if (pos && d > 0.) || (not pos && d < 0.) then
-                Format.fprintf ppf "-%g" (abs_float d) ;
-              true
-            end else false)
-          false [ -2. ; -1. ; 0. ; 1. ; 2. ] then () else
-        Format.fprintf ppf "%f" m in
-  let pp_numeric_specs ppf { multiple_of ; minimum ; maximum } =
-    Format.fprintf ppf "%a%a%a"
-      (fun ppf -> function None -> () | Some v -> Format.fprintf ppf "multiple of %g" v)
-      multiple_of
-      (fun ppf -> function
-         | (None, _, _) | (_, None, None) -> ()
-         | _ -> Format.fprintf ppf ", ")
-      (multiple_of, minimum, maximum)
-      (fun ppf -> function
-         | None, None -> ()
-         | minimum, maximum ->
-           Format.fprintf ppf "∈ %a, %a"
-             (fun ppf -> function
-                | None -> Format.fprintf ppf "]∞"
-                | Some (m, `Exclusive) -> Format.fprintf ppf "]%a" pp_num m
-                | Some (m, `Inclusive) -> Format.fprintf ppf "[%a" pp_num m)
-             minimum
-             (fun ppf -> function
-                | None -> Format.fprintf ppf "∞["
-                | Some (m, `Exclusive) -> Format.fprintf ppf "%a[" pp_num m
-                | Some (m, `Inclusive) -> Format.fprintf ppf "%a]" pp_num m)
-             maximum)
-      (minimum, maximum) in
-  let pp_path ppf = function
-    | [ `Field "definitions" ; `Field name ] -> Format.fprintf ppf "%s" name
-    | path -> Json_query.(print_path_as_json_path ~wildcards:true) ppf path in
-  let pp_desc element = match element with
-    | { title = None ; description = None } -> None
-    | { title = Some text ; description = None }
-    | { title = None ; description = Some text } ->
-      Some begin fun ppf () ->
-        Format.fprintf ppf "/* @[<hov 0>%a@] */"
-          Format.pp_print_text text
-      end
-    | { title = Some title ; description = Some description } ->
-      Some begin fun ppf () ->
-        Format.fprintf ppf "/* @[<v 0>@[<hov 0>%a@]@,@[<hov 0>%a@]@] */"
-          Format.pp_print_text title
-          Format.pp_print_text description
-      end in
-  let rec pp_element ppf element =
-    match element.id with
-    | Some id ->
-      Format.fprintf ppf "#%s" id
+let pp_string ppf s =
+  Json_repr.(pp (module Ezjsonm)) ppf (`String s)
+let pp_num ppf m =
+  if abs_float m < 1000. then
+    Format.fprintf ppf "%g" m
+  else
+    let pos, m =
+      if m < 0. then (false, ~-. m) else (true, m) in
+    if List.fold_left (fun acc d ->
+        if acc then acc else
+          let v = log (m +. d) /. log 2. in
+          if abs_float (ceil v -. v) < 0.00001 then begin
+            Format.fprintf ppf "%s2^%g" (if pos then "" else "-") v ;
+            if (pos && d < 0.) || (not pos && d > 0.) then
+              Format.fprintf ppf "+%g" (abs_float d) ;
+            if (pos && d > 0.) || (not pos && d < 0.) then
+              Format.fprintf ppf "-%g" (abs_float d) ;
+            true
+          end else false)
+        false [ -2. ; -1. ; 0. ; 1. ; 2. ] then () else
+      Format.fprintf ppf "%f" m
+let pp_numeric_specs ppf { multiple_of ; minimum ; maximum } =
+  Format.fprintf ppf "%a%a%a"
+    (fun ppf -> function None -> () | Some v -> Format.fprintf ppf "multiple of %g" v)
+    multiple_of
+    (fun ppf -> function
+       | (None, _, _) | (_, None, None) -> ()
+       | _ -> Format.fprintf ppf ", ")
+    (multiple_of, minimum, maximum)
+    (fun ppf -> function
+       | None, None -> ()
+       | minimum, maximum ->
+         Format.fprintf ppf "∈ %a, %a"
+           (fun ppf -> function
+              | None -> Format.fprintf ppf "]∞"
+              | Some (m, `Exclusive) -> Format.fprintf ppf "]%a" pp_num m
+              | Some (m, `Inclusive) -> Format.fprintf ppf "[%a" pp_num m)
+           minimum
+           (fun ppf -> function
+              | None -> Format.fprintf ppf "∞["
+              | Some (m, `Exclusive) -> Format.fprintf ppf "%a[" pp_num m
+              | Some (m, `Inclusive) -> Format.fprintf ppf "%a]" pp_num m)
+           maximum)
+    (minimum, maximum)
+let pp_path ppf = function
+  | [ `Field "definitions" ; `Field name ] -> Format.fprintf ppf "%s" name
+  | path -> Json_query.(print_path_as_json_path ~wildcards:true) ppf path
+let pp_desc element = match element with
+  | { title = None ; description = None } -> None
+  | { title = Some text ; description = None }
+  | { title = None ; description = Some text } ->
+    Some begin fun ppf () ->
+      Format.fprintf ppf "/* @[<hov 0>%a@] */"
+        Format.pp_print_text text
+    end
+  | { title = Some title ; description = Some description } ->
+    Some begin fun ppf () ->
+      Format.fprintf ppf "/* @[<v 0>@[<hov 0>%a@]@,@[<hov 0>%a@]@] */"
+        Format.pp_print_text title
+        Format.pp_print_text description
+    end
+let rec pp_element ppf element =
+  match element.id with
+  | Some id ->
+    Format.fprintf ppf "#%s" id
+  | None ->
+    match element.format with
+    | Some format ->
+      Format.fprintf ppf "%s" format
     | None ->
-      match element.format with
-      | Some format ->
-        Format.fprintf ppf "%s" format
+      match element.enum with
+      | Some cases ->
+        let pp_sep ppf () =
+          Format.fprintf ppf "@ | " in
+        Format.fprintf ppf "@[<hv 0>%a@]"
+          (Format.pp_print_list ~pp_sep (Json_repr.pp_any ~compact: false ()))
+          cases
       | None ->
-        match element.enum with
-        | Some cases ->
-          let pp_sep ppf () =
-            Format.fprintf ppf "@ | " in
-          Format.fprintf ppf "@[<hv 0>%a@]"
-            (Format.pp_print_list ~pp_sep (Json_repr.pp_any ~compact: false ()))
-            cases
+        match pp_desc element with
+        | Some pp_desc ->
+          let stripped =
+            { element with title = None ; description = None } in
+          begin match element.kind with
+            | Combine _ ->
+              Format.fprintf ppf "%a@,%a"
+                pp_desc () pp_element stripped
+            | Object specs ->
+              Format.fprintf ppf "@[<v 2>{ %a@,%a }@]"
+                pp_desc () pp_object_contents specs
+            | _ ->
+              Format.fprintf ppf "%a@ %a" pp_element stripped pp_desc ()
+          end
         | None ->
-          match pp_desc element with
-          | Some pp_desc ->
-            let stripped =
-              { element with title = None ; description = None } in
-            begin match element.kind with
-              | Combine _ ->
-                Format.fprintf ppf "%a@,%a"
-                  pp_desc () pp_element stripped
-              | Object specs ->
-                Format.fprintf ppf "@[<v 2>{ %a@,%a }@]"
-                  pp_desc () pp_object_contents specs
-              | _ ->
-                Format.fprintf ppf "%a@ %a" pp_element stripped pp_desc ()
-            end
-          | None ->
-            begin match element.kind with
-              | String { pattern = None ; min_length = 0 ; max_length = None} ->
-                Format.fprintf ppf "string"
-              | String { pattern = Some pat ; min_length = 0 ; max_length = None} ->
-                Format.fprintf ppf "/%s/" pat
-              | String { pattern ; min_length ; max_length } ->
-                Format.fprintf ppf "%a (%alength%a)"
-                  (fun ppf -> function
-                     | None -> Format.fprintf ppf "string"
-                     | Some pat -> Format.fprintf ppf "/%s/" pat)
-                  pattern
-                  (fun ppf n -> if n > 0 then Format.fprintf ppf "%d <= " n)
-                  min_length
-                  (fun ppf -> function None -> () | Some m -> Format.fprintf ppf "<= %d" m)
-                  max_length
-              | Integer { multiple_of = None ; minimum = None ; maximum = None } ->
-                Format.fprintf ppf "integer"
-              | Integer specs ->
-                Format.fprintf ppf "integer %a" pp_numeric_specs specs
-              | Number { multiple_of = None ; minimum = None ; maximum = None } ->
-                Format.fprintf ppf "number"
-              | Number specs ->
-                Format.fprintf ppf "number %a" pp_numeric_specs specs
-              | Id_ref id ->
-                Format.fprintf ppf "#%s" id
-              | Def_ref path ->
-                Format.fprintf ppf "$%a" pp_path path
-              | Ext_ref uri ->
-                Format.fprintf ppf "$%a" Uri.pp_hum uri
-              | Boolean ->
-                Format.fprintf ppf "boolean"
-              | Null ->
-                Format.fprintf ppf "null"
-              | Any ->
-                Format.fprintf ppf "any"
-              | Dummy -> assert false
-              | Combine (Not, [ elt ]) ->
-                Format.fprintf ppf "! %a" pp_element elt
-              | Combine (c, elts) ->
-                let pp_sep ppf () = match c with
-                  | Any_of -> Format.fprintf ppf "@ | "
-                  | One_of -> Format.fprintf ppf "@ || "
-                  | All_of -> Format.fprintf ppf "@ && "
-                  | _ -> assert false in
-                Format.fprintf ppf "@[<hv 0>%a@]"
-                  (Format.pp_print_list ~pp_sep pp_element)
-                  elts
-              | Object { properties = [] ;
-                         pattern_properties = [] ;
-                         additional_properties = None ;
-                         min_properties = 0 ;
-                         max_properties = Some 0 ;
-                         schema_dependencies = [] ;
-                         property_dependencies = [] } ->
-                Format.fprintf ppf "{}"
-              | Object specs ->
-                Format.fprintf ppf "@[<v 2>{ %a }@]"
-                  pp_object_contents specs
-              | Array (_, { max_items = Some 0 })
-              | Monomorphic_array (_, { max_items = Some 0 }) ->
-                Format.fprintf ppf "[]"
-              | Array (elements, { additional_items }) ->
-                let pp_sep =
-                  let first = ref true in
-                  fun ppf () ->
-                    if !first then
-                      first := false
-                    else
-                      Format.fprintf ppf ",@ " in
-                Format.fprintf ppf "@[<hv 2>[ " ;
-                List.iter (fun elt ->
-                    Format.fprintf ppf "%a%a"
-                      pp_sep ()
-                      pp_element elt)
-                  elements ;
-                begin match additional_items with
-                  | None -> ()
-                  | Some { kind = Any } ->
-                    Format.fprintf ppf "%a,@ ..." pp_sep ()
-                  | Some elt ->
-                    Format.fprintf ppf "%a,@ %a ..."
-                      pp_sep ()
-                      pp_element elt
-                end ;
-                Format.fprintf ppf " ]@]"
-              | Monomorphic_array (elt, { additional_items = None }) ->
-                Format.fprintf ppf "[ %a ... ]"
-                  pp_element elt
-              | Monomorphic_array (elt, { additional_items = Some { kind = Any } }) ->
-                Format.fprintf ppf "@[<hv 2>[ %a ...,@ ... ]@]"
-                  pp_element elt
-              | Monomorphic_array (elt, { additional_items = Some add_elt }) ->
-                (* TODO: find a good way to print length *)
-                Format.fprintf ppf "@[<hv 2>[ %a ...,@ %a ... ]@]"
-                  pp_element elt pp_element add_elt
-            end
-  and pp_object_contents ppf
-      { properties ; pattern_properties ; additional_properties } =
-    (* TODO: find a good way to print length / dependencies *)
-    let pp_sep =
-      let first = ref true in
-      fun ppf () ->
-        if !first then
-          first := false
-        else
-          Format.fprintf ppf ",@ " in
-    List.iter (fun (name, elt, req, _) ->
-        Format.fprintf ppf "%a@[<hv 2>%a%s:@ %a@]"
-          pp_sep ()
-          pp_string name (if req then "" else "?")
-          pp_element elt)
-      properties ;
-    List.iter (fun (name, elt) ->
-        Format.fprintf ppf "%a@[<hv 2>/%s/:@ %a@]"
-          pp_sep ()
-          name
-          pp_element elt)
-      pattern_properties ;
-    begin match additional_properties with
-      | None -> ()
-      | Some { kind = Any } ->
-        Format.fprintf ppf "%a..." pp_sep ()
-      | Some elt ->
-        Format.fprintf ppf "%a@[<hv 2>*:@ %a@]"
-          pp_sep ()
-          pp_element elt
-    end in
+          begin match element.kind with
+            | String { pattern = None ; min_length = 0 ; max_length = None} ->
+              Format.fprintf ppf "string"
+            | String { pattern = Some pat ; min_length = 0 ; max_length = None} ->
+              Format.fprintf ppf "/%s/" pat
+            | String { pattern ; min_length ; max_length } ->
+              Format.fprintf ppf "%a (%alength%a)"
+                (fun ppf -> function
+                   | None -> Format.fprintf ppf "string"
+                   | Some pat -> Format.fprintf ppf "/%s/" pat)
+                pattern
+                (fun ppf n -> if n > 0 then Format.fprintf ppf "%d <= " n)
+                min_length
+                (fun ppf -> function None -> () | Some m -> Format.fprintf ppf "<= %d" m)
+                max_length
+            | Integer { multiple_of = None ; minimum = None ; maximum = None } ->
+              Format.fprintf ppf "integer"
+            | Integer specs ->
+              Format.fprintf ppf "integer %a" pp_numeric_specs specs
+            | Number { multiple_of = None ; minimum = None ; maximum = None } ->
+              Format.fprintf ppf "number"
+            | Number specs ->
+              Format.fprintf ppf "number %a" pp_numeric_specs specs
+            | Id_ref id ->
+              Format.fprintf ppf "#%s" id
+            | Def_ref path ->
+              Format.fprintf ppf "$%a" pp_path path
+            | Ext_ref uri ->
+              Format.fprintf ppf "$%a" Uri.pp_hum uri
+            | Boolean ->
+              Format.fprintf ppf "boolean"
+            | Null ->
+              Format.fprintf ppf "null"
+            | Any ->
+              Format.fprintf ppf "any"
+            | Dummy -> assert false
+            | Combine (Not, [ elt ]) ->
+              Format.fprintf ppf "! %a" pp_element elt
+            | Combine (c, elts) ->
+              let pp_sep ppf () = match c with
+                | Any_of -> Format.fprintf ppf "@ | "
+                | One_of -> Format.fprintf ppf "@ || "
+                | All_of -> Format.fprintf ppf "@ && "
+                | _ -> assert false in
+              Format.fprintf ppf "@[<hv 0>%a@]"
+                (Format.pp_print_list ~pp_sep pp_element)
+                elts
+            | Object { properties = [] ;
+                       pattern_properties = [] ;
+                       additional_properties = None ;
+                       min_properties = 0 ;
+                       max_properties = Some 0 ;
+                       schema_dependencies = [] ;
+                       property_dependencies = [] } ->
+              Format.fprintf ppf "{}"
+            | Object specs ->
+              Format.fprintf ppf "@[<v 2>{ %a }@]"
+                pp_object_contents specs
+            | Array (_, { max_items = Some 0 })
+            | Monomorphic_array (_, { max_items = Some 0 }) ->
+              Format.fprintf ppf "[]"
+            | Array (elements, { additional_items }) ->
+              let pp_sep =
+                let first = ref true in
+                fun ppf () ->
+                  if !first then
+                    first := false
+                  else
+                    Format.fprintf ppf ",@ " in
+              Format.fprintf ppf "@[<hv 2>[ " ;
+              List.iter (fun elt ->
+                  Format.fprintf ppf "%a%a"
+                    pp_sep ()
+                    pp_element elt)
+                elements ;
+              begin match additional_items with
+                | None -> ()
+                | Some { kind = Any } ->
+                  Format.fprintf ppf "%a,@ ..." pp_sep ()
+                | Some elt ->
+                  Format.fprintf ppf "%a,@ %a ..."
+                    pp_sep ()
+                    pp_element elt
+              end ;
+              Format.fprintf ppf " ]@]"
+            | Monomorphic_array (elt, { additional_items = None }) ->
+              Format.fprintf ppf "[ %a ... ]"
+                pp_element elt
+            | Monomorphic_array (elt, { additional_items = Some { kind = Any } }) ->
+              Format.fprintf ppf "@[<hv 2>[ %a ...,@ ... ]@]"
+                pp_element elt
+            | Monomorphic_array (elt, { additional_items = Some add_elt }) ->
+              (* TODO: find a good way to print length *)
+              Format.fprintf ppf "@[<hv 2>[ %a ...,@ %a ... ]@]"
+                pp_element elt pp_element add_elt
+          end
+and pp_object_contents ppf
+    { properties ; pattern_properties ; additional_properties } =
+  (* TODO: find a good way to print length / dependencies *)
+  let pp_sep =
+    let first = ref true in
+    fun ppf () ->
+      if !first then
+        first := false
+      else
+        Format.fprintf ppf ",@ " in
+  List.iter (fun (name, elt, req, _) ->
+      Format.fprintf ppf "%a@[<hv 2>%a%s:@ %a@]"
+        pp_sep ()
+        pp_string name (if req then "" else "?")
+        pp_element elt)
+    properties ;
+  List.iter (fun (name, elt) ->
+      Format.fprintf ppf "%a@[<hv 2>/%s/:@ %a@]"
+        pp_sep ()
+        name
+        pp_element elt)
+    pattern_properties ;
+  begin match additional_properties with
+    | None -> ()
+    | Some { kind = Any } ->
+      Format.fprintf ppf "%a..." pp_sep ()
+    | Some elt ->
+      Format.fprintf ppf "%a@[<hv 2>*:@ %a@]"
+        pp_sep ()
+        pp_element elt
+  end
+let pp ppf schema =
   Format.fprintf ppf "@[<v 0>" ;
   pp_element ppf schema.root ;
   List.iter (fun (path, elt) ->
@@ -450,6 +426,42 @@ let pp ppf schema =
     schema.ids ;
   Format.fprintf ppf "@]"
 
+(*-- errors ----------------------------------------------------------------*)
+
+exception Cannot_parse of path * exn
+exception Dangling_reference of Uri.t
+exception Bad_reference of string
+exception Unexpected of string * string
+exception Duplicate_definition of path * element * element
+
+let rec print_error ?print_unknown ppf = function
+  | Cannot_parse (path, exn) ->
+    Format.fprintf ppf
+      "@[<v 2>Schema parse error:@,At %a@,%a@]"
+      (Json_query.print_path_as_json_path ~wildcards:true) path
+      (print_error ?print_unknown) exn
+  | Dangling_reference uri ->
+    Format.fprintf ppf
+      "Dangling reference %s" (Uri.to_string uri)
+  | Bad_reference str ->
+    Format.fprintf ppf
+      "Illegal reference notation %s" str
+  | Unexpected (unex, ex) ->
+    Format.fprintf ppf
+      "Unexpected %s instead of %s" unex ex
+  | Duplicate_definition (name, elt, defelt) ->
+    Format.fprintf ppf
+      "@[<v 2>Duplicate definition %a@,\
+       To be inserted:@,\
+      \  @[<v 0>%a@]@,\
+       Already present:@,\
+      \  @[<v 0>%a@]@]"
+      (Json_query.print_path_as_json_pointer ~wildcards:false) name
+      pp_element elt
+      pp_element defelt
+  | exn ->
+    Json_query.print_error ?print_unknown ppf exn
+
 (*-- internal definition table handling ------------------------------------*)
 
 let find_definition name defs =
@@ -467,7 +479,8 @@ let insert_definition name elt defs =
     | (_, { kind = Dummy }) :: rem ->
       (name, elt) :: rem
     | (_, defelt) :: rem ->
-      if not (eq_element elt defelt) then raise (Duplicate_definition name) ;
+      if not (eq_element elt defelt) then
+        raise (Duplicate_definition (name, elt, defelt)) ;
       (name, elt) :: rem in
   insert defs
 
@@ -1092,7 +1105,7 @@ module Make (Repr : Json_repr.Repr) = struct
           if da.kind = Dummy || db.kind = Dummy || eq_element da db then
             (na, da) :: sorted_merge tl
           else
-            raise (Duplicate_definition na)
+            raise (Duplicate_definition (na, da, db))
         else
           a :: sorted_merge (b :: tl)
       | [] | [ _ ] as rem -> rem
