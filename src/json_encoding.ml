@@ -434,13 +434,17 @@ let schema encoding =
       | Conv (_, _, t, None) -> schema t
       | Mu (name, f) ->
         let fake_schema =
-          let sch, elt = add_definition name (element Dummy) any in
-          update elt sch in
+          if definition_exists name !sch then
+            update (definition_ref name) !sch
+          else
+            let sch, elt = add_definition name (element Dummy) !sch in
+            update elt sch in
         let fake_self =
           Custom ({ write = (fun _ _ -> assert false) ;
                     read = (fun _ -> assert false) },
                   fake_schema) in
-        let nsch, def = add_definition name (schema (f fake_self)) !sch in
+        let root = schema (f fake_self) in
+        let nsch, def = add_definition name root !sch in
         sch := nsch ; def
       | Array t ->
         element (Monomorphic_array (schema t, array_specs))

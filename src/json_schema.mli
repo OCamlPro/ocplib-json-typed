@@ -183,6 +183,10 @@ val find_definition : string -> schema -> element
     See {!add_definition} for the name format. *)
 val definition_exists : string -> schema -> bool
 
+(** Build a reference to a definition.
+    See {!add_definition} for the name format. *)
+val definition_ref : string -> element
+
 (** {2 Predefined values} *) (***********************************************)
 
 (** Default Parameters of the [Array] and [MonomorphicArray] type specifiers. *)
