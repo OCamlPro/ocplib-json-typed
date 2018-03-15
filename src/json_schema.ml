@@ -1088,6 +1088,10 @@ module Make (Repr : Json_repr.Repr) = struct
     let path = definition_path_of_name name in
     find_definition path schema.definitions
 
+  let definition_ref name =
+    let path = definition_path_of_name name in
+    element (Def_ref path)
+
   let definition_exists name schema =
     let path = definition_path_of_name name in
     definition_exists path schema.definitions
