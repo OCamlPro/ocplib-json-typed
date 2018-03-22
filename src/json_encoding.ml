@@ -364,11 +364,11 @@ module Ezjsonm_encoding = Make (Json_repr.Ezjsonm)
 let schema encoding =
   let open Json_schema in
   let sch = ref any in
-  let (@@@) (l1, b1) (l2, b2) =
-    l1 @ l2, b1 || b2  in
-  let rec (@@) l1 l2 = match l1 with
+  let rec prod l1 l2 = match l1 with
     | [] -> []
-    | e :: es -> (List.map (fun l -> e @@@ l) l2) @ (es @@ l2) in
+    | (l1, b1) :: es ->
+      List.map (fun (l2, b2) -> l1 @ l2, b1 || b2) l2
+      @ prod es l2 in
   let rec object_schema
     : type t. t encoding -> ((string * element * bool * Json_repr.any option) list * bool) list
     = function
@@ -381,11 +381,14 @@ let schema encoding =
         let d = Json_repr.repr_to_any (module Json_repr.Ezjsonm) (Ezjsonm_encoding.construct t d) in
         [ [ n, schema t, false, Some d], false ]
       | Objs (o1, o2) ->
-        object_schema o1 @@ object_schema o2
+        prod (object_schema o1) (object_schema o2)
+      | Union [] ->
+        invalid_arg "Json_encoding.schema: empty union in object"
       | Union cases ->
-        List.fold_left
-          (fun acc (Case (o, _, _)) -> object_schema o @@ acc)
-          [] cases
+        List.flatten
+          (List.map
+             (fun (Case (o, _, _)) -> object_schema o)
+             cases)
       | Mu (_, self) as mu -> object_schema (self mu)
       | Conv (_, _, _, Some _) (* FIXME: We could do better *)
       | _ -> invalid_arg "Json_encoding.schema: consequence of bad merge_objs"
