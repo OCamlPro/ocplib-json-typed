@@ -679,21 +679,42 @@ let option : type t. t encoding -> t option encoding = fun t ->
     : type tf. (module Json_repr.Repr with type value = tf) -> tf -> t option
     = fun (module Repr_f) repr ->
       match Repr_f.view repr with
-      | `Null -> None
-      | _ ->
+      | `O [] -> None
+      | `O [("Some", repr)] ->
         let module Repr_f_encoding = Make (Repr_f) in
-        Some (Repr_f_encoding.destruct t repr) in
+        Some (Repr_f_encoding.destruct t repr)
+      | other ->
+        raise (unexpected other "Empty object (None) or simple object (Some)")
+  in
   let write
     : type tf. (module Json_repr.Repr with type value = tf) -> t option -> tf
     = fun (module Repr_f) v ->
       match v with
-      | None -> Repr_f.repr `Null
+      | None -> Repr_f.repr (`O [])
       | Some v ->
         let module Repr_f_encoding = Make (Repr_f) in
-        Repr_f_encoding.construct t v in
+        let repr = Repr_f_encoding.construct t v in
+        Repr_f.repr (`O [("Some", repr)]) in
   let schema =
     let s = schema t in
-    Json_schema.(update (element (Combine (One_of, [(root s) ; element Null]))) s) in
+    Json_schema.(
+      update
+        (element
+           (Combine
+              (One_of, [
+                  element (
+                    Object { object_specs with
+                             properties = [("Some", (root s), true, None)];
+                             min_properties = 1;
+                             max_properties = Some 1;
+                           }) ;
+                  element (
+                    Object { object_specs with
+                             properties = [];
+                             min_properties = 0;
+                             max_properties = Some 0;
+                           }) ;
+                ]))) s) in
   Custom ({ read ; write }, schema)
 
 let int32 =
