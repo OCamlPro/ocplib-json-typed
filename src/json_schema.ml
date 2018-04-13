@@ -68,9 +68,9 @@ and array_specs =
     additional_items : element option }
 
 and numeric_specs =
-  { multiple_of : float option ;
-    minimum : (float * [ `Inclusive | `Exclusive ]) option ;
-    maximum : (float * [ `Inclusive | `Exclusive ]) option }
+  { multiple_of : string option ;
+    minimum : (string * [ `Inclusive | `Exclusive ]) option ;
+    maximum : (string * [ `Inclusive | `Exclusive ]) option }
 
 and object_specs =
   { properties : (string * element * bool * Json_repr.any option) list ;
@@ -196,7 +196,7 @@ let pp_num ppf m =
       Format.fprintf ppf "%f" m
 let pp_numeric_specs ppf { multiple_of ; minimum ; maximum } =
   Format.fprintf ppf "%a%a%a"
-    (fun ppf -> function None -> () | Some v -> Format.fprintf ppf "multiple of %g" v)
+    (fun ppf -> function None -> () | Some v -> Format.fprintf ppf "multiple of %s" v)
     multiple_of
     (fun ppf -> function
        | (None, _, _) | (_, None, None) -> ()
@@ -208,13 +208,13 @@ let pp_numeric_specs ppf { multiple_of ; minimum ; maximum } =
          Format.fprintf ppf "∈ %a, %a"
            (fun ppf -> function
               | None -> Format.fprintf ppf "]∞"
-              | Some (m, `Exclusive) -> Format.fprintf ppf "]%a" pp_num m
-              | Some (m, `Inclusive) -> Format.fprintf ppf "[%a" pp_num m)
+              | Some (m, `Exclusive) -> Format.fprintf ppf "]%s" m
+              | Some (m, `Inclusive) -> Format.fprintf ppf "[%s" m)
            minimum
            (fun ppf -> function
               | None -> Format.fprintf ppf "∞["
-              | Some (m, `Exclusive) -> Format.fprintf ppf "%a[" pp_num m
-              | Some (m, `Inclusive) -> Format.fprintf ppf "%a]" pp_num m)
+              | Some (m, `Exclusive) -> Format.fprintf ppf "%s[" m
+              | Some (m, `Inclusive) -> Format.fprintf ppf "%s]" m)
            maximum)
     (minimum, maximum)
 let pp_path ppf = function
@@ -575,37 +575,37 @@ module Make (Repr : Json_repr.Repr) = struct
           set_always "$ref" (`String (Uri.to_string uri))
         | Integer specs ->
           set_always "type" (`String "integer") @
-          set_if_some "multipleOf" specs.multiple_of (fun v -> `Float v) @
+          set_if_some "multipleOf" specs.multiple_of (fun v -> `String v) @
           (match specs.minimum with
            | None -> []
            | Some (v, `Inclusive) ->
-             [ "minimum", Repr.repr (`Float v) ]
+             [ "minimum", Repr.repr (`String v) ]
            | Some (v, `Exclusive) ->
-             [ "minimum", Repr.repr (`Float v) ;
+             [ "minimum", Repr.repr (`String v) ;
                "exclusiveMinimum", Repr.repr (`Bool true) ] ) @
           (match specs.maximum with
            | None -> []
            | Some (v, `Inclusive) ->
-             [ "maximum", Repr.repr (`Float v) ]
+             [ "maximum", Repr.repr (`String v) ]
            | Some (v, `Exclusive) ->
-             [ "maximum", Repr.repr (`Float v) ;
+             [ "maximum", Repr.repr (`String v) ;
                "exclusiveMaximum", Repr.repr (`Bool true) ] )
         | Number specs ->
           set_always "type" (`String "number") @
-          set_if_some "multipleOf" specs.multiple_of (fun v -> `Float v) @
+          set_if_some "multipleOf" specs.multiple_of (fun v -> `String v) @
           (match specs.minimum with
            | None -> []
            | Some (v, `Inclusive) ->
-             [ "minimum", Repr.repr (`Float v) ]
+             [ "minimum", Repr.repr (`String v) ]
            | Some (v, `Exclusive) ->
-             [ "minimum", Repr.repr (`Float v) ;
+             [ "minimum", Repr.repr (`String v) ;
                "exclusiveMinimum", Repr.repr (`Bool true) ] ) @
           (match specs.maximum with
            | None -> []
            | Some (v, `Inclusive) ->
-             [ "maximum", Repr.repr (`Float v) ]
+             [ "maximum", Repr.repr (`String v) ]
            | Some (v, `Exclusive) ->
-             [ "maximum", Repr.repr (`Float v) ;
+             [ "maximum", Repr.repr (`String v) ;
                "exclusiveMaximum", Repr.repr (`Bool true) ] )
         | String { pattern ; min_length ; max_length } ->
           set_always "type" (`String "string") @
@@ -668,10 +668,6 @@ module Make (Repr : Json_repr.Repr) = struct
     let opt_int_field obj n = match opt_field_view obj n with
       | Some (`Float f) when (fst (modf f) = 0.) -> Some (int_of_float f)
       | Some k -> raise (at_field n @@ unexpected k "integer")
-      | None -> None in
-    let opt_float_field obj n = match opt_field_view obj n with
-      | Some (`Float f) -> Some f
-      | Some k -> raise (at_field n @@ unexpected k "number")
       | None -> None in
     let opt_array_field obj n = match opt_field_view obj n with
       | Some (`A s) -> Some s
@@ -816,29 +812,29 @@ module Make (Repr : Json_repr.Repr) = struct
       : type a. Uri.t -> Repr.value -> string -> element_kind
       = fun source json name ->
         let numeric_specs json =
-          let multiple_of = opt_float_field json "multipleOf" in
+          let multiple_of = opt_string_field json "multipleOf" in
           let minimum =
             if opt_bool_field false json "exclusiveMinimum" then
-              match opt_float_field json "minimum" with
+              match opt_string_field json "minimum" with
               | None ->
                 let err =
                   "minimum field required when exclusiveMinimum is true" in
                 raise (Failure err)
               | Some v -> Some (v, `Inclusive)
             else
-              match opt_float_field json "minimum" with
+              match opt_string_field json "minimum" with
               | None -> None
               | Some v -> Some (v, `Exclusive) in
           let maximum =
             if opt_bool_field false json "exclusiveMaximum" then
-              match opt_float_field json "maximum" with
+              match opt_string_field json "maximum" with
               | None ->
                 let err =
                   "maximum field required when exclusiveMaximum is true" in
                 raise (Failure err)
               | Some v -> Some (v, `Inclusive)
             else
-              match opt_float_field json "maximum" with
+              match opt_string_field json "maximum" with
               | None -> None
               | Some v -> Some (v, `Exclusive) in
           { multiple_of ; minimum ; maximum} in

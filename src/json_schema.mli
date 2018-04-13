@@ -92,11 +92,11 @@ and array_specs =
 
 (** Parameters of the [Integer] and [Number] type specifiers. *)
 and numeric_specs =
-  { multiple_of : float option ;
+  { multiple_of : string option ;
     (** An optional divisor of valid values *)
-    minimum : (float * [ `Inclusive | `Exclusive ]) option ;
+    minimum : (string * [ `Inclusive | `Exclusive ]) option ;
     (** The optional lower bound of the numeric range *)
-    maximum : (float * [ `Inclusive | `Exclusive ]) option
+    maximum : (string * [ `Inclusive | `Exclusive ]) option
     (** The optional upper bound of the numeric range *) }
 
 (** Parameters of the [Object] type specifier. *)

@@ -74,13 +74,13 @@ type _ encoding =
 
 and 'a int_encoding =
   { name : string ;
-    of_float : float -> 'a ;
-    to_float : 'a -> float ;
+    of_string : string -> 'a ;
+    to_string : 'a -> string ;
     lower_bound : 'a ;
     upper_bound : 'a }
 
-and bounds = { minimum : float ;
-               maximum : float }
+and bounds = { minimum : string ;
+               maximum : string }
 
 and _ field =
   | Req : string * 'a encoding -> 'a field
@@ -102,14 +102,17 @@ module Make (Repr : Json_repr.Repr) = struct
         | Empty -> (fun () -> Repr.repr (`O []))
         | Ignore -> (fun () -> Repr.repr (`O []))
         | Constant str -> (fun () -> Repr.repr (`String str))
-        | Int { name ; to_float ; lower_bound ; upper_bound } ->
-          let err = "Json_encoding.construct: " ^ name ^ " out of range" in
+        | Int { name ; to_string ; lower_bound ; upper_bound } ->
           (fun (i : t) ->
-             if i < lower_bound || i > upper_bound then invalid_arg err ;
-             Repr.repr (`Float (to_float  i)))
+             if i < lower_bound || i > upper_bound then
+               invalid_arg
+                 ("Json_encoding.construct: " ^ name ^ " out of range");
+             Repr.repr (`String (to_string  i)))
         | Bool -> (fun (b : t) -> Repr.repr (`Bool b))
         | String -> (fun s -> Repr.repr (`String s))
         | Float (Some { minimum ; maximum }) ->
+          let minimum = float_of_string minimum in
+          let maximum = float_of_string maximum in
           let err = "Json_encoding.construct: float out of range" in
           (fun float ->
              if float < minimum || float > maximum then invalid_arg err ;
@@ -174,27 +177,23 @@ module Make (Repr : Json_repr.Repr) = struct
            match Repr.view v with
            | `String s when s = str -> ()
            | x -> raise @@ unexpected x str)
-      | Int { name ; of_float ; to_float ; lower_bound ; upper_bound } ->
-        let lower_bound = to_float lower_bound in
-        let upper_bound = to_float upper_bound in
+      | Int { name ; of_string ; to_string ; lower_bound ; upper_bound } ->
         (fun v ->
            match Repr.view v with
-           | `Float v ->
-             let rest, v = modf v in
-             if rest <> 0. then begin
-               let exn = Failure (name ^ " cannot have a fractional part") in
-               raise (Cannot_destruct ([], exn))
-             end ;
+           | `String s ->
+             let v = of_string s in
              if v < lower_bound || v > upper_bound then begin
                let exn = Failure (name ^ " out of range") in
                raise (Cannot_destruct ([], exn))
              end ;
-             of_float v
+             v
            | k -> raise (unexpected k "number"))
       | Bool -> (fun v -> match Repr.view v with `Bool b -> (b : t) | k -> raise (unexpected k "boolean"))
       | String -> (fun v -> match Repr.view v with `String s -> s | k -> raise (unexpected k "string"))
       | Float None -> (fun v -> match Repr.view v with `Float f -> f | k -> raise (unexpected k "float"))
       | Float (Some { minimum ; maximum }) ->
+        let minimum = float_of_string minimum in
+        let maximum = float_of_string maximum in
         (fun v ->
            match Repr.view v with
            | `Float f ->
@@ -407,9 +406,9 @@ let schema encoding =
       | Null -> element Null
       | Empty -> element (Object { object_specs with additional_properties = None })
       | Ignore -> element Any
-      | Int { to_float ; lower_bound ; upper_bound } ->
-        let minimum = Some (to_float lower_bound, `Inclusive) in
-        let maximum = Some (to_float upper_bound, `Inclusive) in
+      | Int { to_string ; lower_bound ; upper_bound } ->
+        let minimum = Some (to_string lower_bound, `Inclusive) in
+        let maximum = Some (to_string upper_bound, `Inclusive) in
         element (Integer { multiple_of = None ; minimum ; maximum })
       | Bool -> element Boolean
       | Constant str ->
@@ -498,20 +497,22 @@ let mu name self = Mu (name, self)
 let null = Null
 let int =
   Int { name = "int" ;
-        of_float = int_of_float ;
-        to_float = float_of_int ;
+        of_string = int_of_string ;
+        to_string = string_of_int ;
+        (* Why not min_int and max_int? *)
         lower_bound = -(1 lsl 30) ;
         upper_bound = (1 lsl 30) - 1 }
 let ranged_int ~minimum ~maximum name =
   Int { name ;
-        of_float = int_of_float ;
-        to_float = float_of_int ;
+        of_string = int_of_string ;
+        to_string = string_of_int ;
         lower_bound = minimum ;
         upper_bound = maximum }
 
 let ranged_float ~minimum ~maximum name =
-  Float (Some { minimum ;
-                maximum })
+  let minimum = string_of_float minimum in
+  let maximum = string_of_float maximum in
+  Float (Some { minimum ; maximum })
 
 let float = Float None
 let string = String
@@ -697,8 +698,8 @@ let option : type t. t encoding -> t option encoding = fun t ->
 
 let int32 =
   Int { name = "int32" ;
-        of_float = Int32.of_float ;
-        to_float = Int32.to_float ;
+        of_string = Int32.of_string ;
+        to_string = Int32.to_string ;
         lower_bound = Int32.min_int ;
         upper_bound = Int32.max_int }
 
