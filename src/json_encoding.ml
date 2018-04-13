@@ -677,7 +677,19 @@ let assoc : type t. t encoding -> (string * t) list encoding = fun t ->
     ~schema:(let s = schema t in
      Json_schema.(update (element (Object { object_specs with additional_properties = Some (root s)})) s))
 
+let is_option t =
+  let s = schema t in
+  match Json_schema.root s with
+  | { kind = Combine (One_of, [_; { kind = Null }]) } -> true
+  | _ -> false
+let is_null: type t. t encoding -> bool = function
+  | Null -> true
+  | _ -> false
 let option : type t. t encoding -> t option encoding = fun t ->
+  if is_option t then
+    invalid_arg "Json_encoding.option: cannot create encoding for _ option option";
+  if is_null t then
+    invalid_arg "Json_encoding.option: cannot create encoding for (option null)";
   let read
     : type tf. (module Json_repr.Repr with type value = tf) -> tf -> t option
     = fun (module Repr_f) repr ->
