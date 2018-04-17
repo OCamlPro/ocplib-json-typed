@@ -79,8 +79,8 @@ and 'a int_encoding =
     lower_bound : 'a ;
     upper_bound : 'a }
 
-and bounds = { minimum : string ;
-               maximum : string }
+and bounds = { minimum : float ;
+               maximum : float }
 
 and _ field =
   | Req : string * 'a encoding -> 'a field
@@ -111,8 +111,6 @@ module Make (Repr : Json_repr.Repr) = struct
         | Bool -> (fun (b : t) -> Repr.repr (`Bool b))
         | String -> (fun s -> Repr.repr (`String s))
         | Float (Some { minimum ; maximum }) ->
-          let minimum = float_of_string minimum in
-          let maximum = float_of_string maximum in
           let err = "Json_encoding.construct: float out of range" in
           (fun float ->
              if float < minimum || float > maximum then invalid_arg err ;
@@ -192,8 +190,6 @@ module Make (Repr : Json_repr.Repr) = struct
       | String -> (fun v -> match Repr.view v with `String s -> s | k -> raise (unexpected k "string"))
       | Float None -> (fun v -> match Repr.view v with `Float f -> f | k -> raise (unexpected k "float"))
       | Float (Some { minimum ; maximum }) ->
-        let minimum = float_of_string minimum in
-        let maximum = float_of_string maximum in
         (fun v ->
            match Repr.view v with
            | `Float f ->
@@ -407,18 +403,18 @@ let schema encoding =
       | Empty -> element (Object { object_specs with additional_properties = None })
       | Ignore -> element Any
       | Int { to_string ; lower_bound ; upper_bound } ->
-        let minimum = Some (to_string lower_bound, `Inclusive) in
-        let maximum = Some (to_string upper_bound, `Inclusive) in
-        element (Integer { multiple_of = None ; minimum ; maximum })
+        let int_minimum = Some (int_of_string (to_string lower_bound), `Inclusive) in
+        let int_maximum = Some (int_of_string (to_string upper_bound), `Inclusive) in
+        element (Integer { int_multiple_of = None ; int_minimum ; int_maximum })
       | Bool -> element Boolean
       | Constant str ->
         { (element (String string_specs)) with
           enum = Some [ Json_repr.to_any (`String str) ] }
       | String -> element (String string_specs)
       | Float (Some { minimum ; maximum }) ->
-        element (Number { multiple_of = None ;
-                          minimum = Some (minimum, `Inclusive) ;
-                          maximum = Some (maximum, `Inclusive) })
+        element (Number { num_multiple_of = None ;
+                          num_minimum = Some (minimum, `Inclusive) ;
+                          num_maximum = Some (maximum, `Inclusive) })
       | Float None -> element (Number numeric_specs)
       | Describe (None, None, t) -> schema t
       | Describe (Some _ as title, None, t) ->
@@ -510,8 +506,6 @@ let ranged_int ~minimum ~maximum name =
         upper_bound = maximum }
 
 let ranged_float ~minimum ~maximum name =
-  let minimum = string_of_float minimum in
-  let maximum = string_of_float maximum in
   Float (Some { minimum ; maximum })
 
 let float = Float None
