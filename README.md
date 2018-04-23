@@ -25,13 +25,10 @@ representation. Two other representations are also provided.
 
   - `Json_repr_browser` interfaces JavaScripts objects. It is
     available only when compiling to JavaScript via
-    `js_of_ocaml`. Users of `ocamlfind` can use the
-    `ocplib-json-typed.browser` subpackage. OPAM users must have
-    `js_of_ocaml` installed for this module to be available.
+    `js_of_ocaml`.
+    Provided by the extra package `ocplib-json-typed-browser`.
   - `Json_repr_bson` is an implementation of a subset of BSON.
-    Users of `ocamlfind` can use the
-    `ocplib-json-typed.bson` subpackage. OPAM users must have
-    `ocplib-endian` installed for this module to be available.
+    Provided by the extra package `ocplib-json-typed-bson`.
 
 Thanks to polymorphic variants, this library does not depend on any
 JSON library, so you are free to use whichever you want for printing

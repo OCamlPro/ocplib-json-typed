@@ -109,7 +109,7 @@ module Make (Repr : Json_repr.Repr) = struct
     | `Index i :: rempath, `A cells ->
       let i = if i < 0 then List.length cells - i  else i in
       query rempath (List.nth cells i)
-    | `Star :: rempath, `O ((n, v) :: rem) ->
+    | `Star :: rempath, `O ((_, v) :: rem) ->
       begin try query rempath v with Not_found -> query path (Repr.repr (`O rem)) end
     | `Star :: rempath, `A (v :: rem) ->
       begin try query rempath v with Not_found -> query path (Repr.repr (`A rem)) end
@@ -244,7 +244,7 @@ let path_operator_name = function
   | `Star -> "wildcard"
   | `Next -> "array append"
 
-let rec print_error ?print_unknown ppf err = match err with
+let print_error ?print_unknown ppf err = match err with
   | Illegal_pointer_notation (notation, pos, msg) ->
     Format.fprintf ppf
       "@[<v 2>Illegal pointer notation@,At character %d of %S@,%s@]"

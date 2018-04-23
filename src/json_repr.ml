@@ -205,7 +205,7 @@ let from_yojson non_basic =
     | `Bool b -> `Bool b in
   to_basic (non_basic :> yojson) |> to_value
 
-let rec to_yojson json =
+let to_yojson json =
   let rec aux : 'a. _ -> ([> yojson ] as 'a) = function
     | `A values ->
       `List (List.map aux values)

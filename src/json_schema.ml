@@ -750,7 +750,7 @@ module Make (Repr : Json_repr.Repr) = struct
                 let kind = parse_element_kind source json name in
                 let case = element kind in
                 items (succ i) (case :: acc) tl
-              | k :: tl ->
+              | k :: _ ->
                 raise (at_field "type" @@ at_index i @@ unexpected k "type")
             in items 0 [] (List.map Repr.view l)
           | Some k ->
@@ -764,7 +764,7 @@ module Make (Repr : Json_repr.Repr) = struct
             Some (element path)
           | None -> None in
         (* 3. Combined schemas *)
-        let rec as_nary name combinator others =
+        let as_nary name combinator others =
           let build = function
             | [] -> None (* not found and no auxiliary case *)
             | [ case ] -> Some case  (* one case -> simplify *)
@@ -784,7 +784,7 @@ module Make (Repr : Json_repr.Repr) = struct
           | None -> build others
           | Some k -> raise (at_field name @@ unexpected k "a list of elements") in
         (* 4. Negated schema *)
-        let rec as_not =
+        let as_not =
           match opt_field_view json "not" with
           | None -> None
           | Some elt ->
@@ -934,7 +934,7 @@ module Make (Repr : Json_repr.Repr) = struct
                              at_index j @@
                              unexpected k "string")
                   in strings 0 [] (List.map Repr.view l)
-                | (n, k) :: tl ->
+                | (n, k) :: _ ->
                   raise (at_field "propertyDependencies" @@
                          at_field n @@
                          unexpected k "string array")
