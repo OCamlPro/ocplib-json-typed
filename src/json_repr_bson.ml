@@ -17,6 +17,7 @@
 (*                                                                      *)
 (************************************************************************)
 
+open Ocplib_json_typed
 open Json_repr
 
 module Repr = struct

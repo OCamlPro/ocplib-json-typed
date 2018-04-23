@@ -17,6 +17,8 @@
 (*                                                                      *)
 (************************************************************************)
 
+open Ocplib_json_typed
+
 (** An abstract type for native browser objects. *)
 type value
 
