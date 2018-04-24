@@ -495,7 +495,7 @@ let int =
   Int { name = "int" ;
         of_string = int_of_string ;
         to_string = string_of_int ;
-        (* Why not min_int and max_int? *)
+        (* cross-platform consistent OCaml ints *)
         lower_bound = -(1 lsl 30) ;
         upper_bound = (1 lsl 30) - 1 }
 let ranged_int ~minimum ~maximum name =
