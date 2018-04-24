@@ -668,47 +668,33 @@ let assoc : type t. t encoding -> (string * t) list encoding = fun t ->
     (let s = schema t in
      Json_schema.(update (element (Object { object_specs with additional_properties = Some (root s)})) s))
 
+let is_option t =
+  let s = schema t in
+  match Json_schema.root s with
+  | { kind = Combine (One_of, [_; { kind = Null }]) } -> true
+  | _ -> false
 let option : type t. t encoding -> t option encoding = fun t ->
+  if is_option t then
+    raise (Invalid_argument "Cannot create encoding for _ option option");
   let read
     : type tf. (module Json_repr.Repr with type value = tf) -> tf -> t option
     = fun (module Repr_f) repr ->
       match Repr_f.view repr with
-      | `O [] -> None
-      | `O [("Some", repr)] ->
+      | `Null -> None
+      | _ ->
         let module Repr_f_encoding = Make (Repr_f) in
-        Some (Repr_f_encoding.destruct t repr)
-      | other ->
-        raise (unexpected other "Empty object (None) or simple object (Some)")
-  in
+        Some (Repr_f_encoding.destruct t repr) in
   let write
     : type tf. (module Json_repr.Repr with type value = tf) -> t option -> tf
     = fun (module Repr_f) v ->
       match v with
-      | None -> Repr_f.repr (`O [])
+      | None -> Repr_f.repr `Null
       | Some v ->
         let module Repr_f_encoding = Make (Repr_f) in
-        let repr = Repr_f_encoding.construct t v in
-        Repr_f.repr (`O [("Some", repr)]) in
+        Repr_f_encoding.construct t v in
   let schema =
     let s = schema t in
-    Json_schema.(
-      update
-        (element
-           (Combine
-              (One_of, [
-                  element (
-                    Object { object_specs with
-                             properties = [("Some", (root s), true, None)];
-                             min_properties = 1;
-                             max_properties = Some 1;
-                           }) ;
-                  element (
-                    Object { object_specs with
-                             properties = [];
-                             min_properties = 0;
-                             max_properties = Some 0;
-                           }) ;
-                ]))) s) in
+    Json_schema.(update (element (Combine (One_of, [(root s) ; element Null]))) s) in
   Custom ({ read ; write }, schema)
 
 let int32 =
