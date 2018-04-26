@@ -390,6 +390,7 @@ let schema encoding =
              (fun (Case (o, _, _)) -> object_schema o)
              cases)
       | Mu (_, self) as mu -> object_schema (self mu)
+      | Describe (_, _, t) -> object_schema t
       | Conv (_, _, _, Some _) (* FIXME: We could do better *)
       | _ -> invalid_arg "Json_encoding.schema: consequence of bad merge_objs"
   and array_schema
@@ -399,6 +400,7 @@ let schema encoding =
       | Tup t -> [ schema t ]
       | Tups (t1, t2) -> array_schema t1 @ array_schema t2
       | Mu (_, self) as mu -> array_schema (self mu)
+      | Describe (_, _, t) -> array_schema t
       | Conv (_, _, _, Some _) (* FIXME: We could do better *)
       | _ -> invalid_arg "Json_encoding.schema: consequence of bad merge_tups"
   and schema
@@ -736,6 +738,7 @@ let merge_tups t1 t2 =
     | Tups _ (* by construction *) -> true
     | Conv (_, _, t, None) -> is_tup t
     | Mu (_name, self) as mu -> is_tup (self mu)
+    | Describe (_, _, t) -> is_tup t
     | _ -> false in
   if is_tup t1 && is_tup t2 then
     Tups (t1, t2)
@@ -755,6 +758,7 @@ let merge_objs o1 o2 =
     | Ignore -> true
     | Union cases -> List.for_all (fun (Case (o, _, _)) -> is_obj o) cases
     | Mu (_name, self) as mu -> is_obj (self mu)
+    | Describe (_, _, t) -> is_obj t
     | _ -> false in
   if is_obj o1 && is_obj o2 then
     Objs (o1, o2)
