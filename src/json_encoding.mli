@@ -344,6 +344,9 @@ val mu : string -> ('a encoding -> 'a encoding) -> 'a encoding
 (** A raw JSON value in ezjsonm representation. *)
 val any_ezjson_value : Json_repr.ezjsonm encoding
 
+(** A valid JSON document (i.e. an array or object value). *)
+val any_document : Json_repr.any encoding
+
 (** The encoding of a JSON schema, linked to its OCaml definiton. *)
 val any_schema : Json_schema.schema encoding
 
