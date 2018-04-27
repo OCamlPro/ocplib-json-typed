@@ -279,7 +279,7 @@ module Make (Repr : Json_repr.Repr) = struct
         let r1, i = destruct_tup i t1 in
         let r2, i = destruct_tup i t2 in
         (fun arr -> r1 arr, r2 arr), i
-      | Conv (ffrom, fto, t, _) ->
+      | Conv (_, fto, t, _) ->
         let r, i = destruct_tup i t in
         (fun arr -> fto (r arr)), i
       | Mu (_, self) as mu -> destruct_tup i (self mu)
@@ -670,7 +670,7 @@ let assoc : type t. t encoding -> (string * t) list encoding = fun t ->
            with Cannot_destruct (p, exn) -> raise (Cannot_destruct (`Field n :: p, exn)) in
          List.map (fun (n, v) -> n, destruct n t v) l
        | #Json_repr.ezjsonm as k -> raise (unexpected k "asssociative object"))
-    (let s = schema t in
+    ~schema:(let s = schema t in
      Json_schema.(update (element (Object { object_specs with additional_properties = Some (root s)})) s))
 
 let option : type t. t encoding -> t option encoding = fun t ->
@@ -728,7 +728,7 @@ let any_schema =
     Json_schema.to_json
     (fun j -> try Json_schema.of_json j with err ->
         raise (Cannot_destruct ([], Bad_schema err)))
-    Json_schema.self
+    ~schema:Json_schema.self
 
 let merge_tups t1 t2 =
   let rec is_tup : type t. t encoding -> bool = function
