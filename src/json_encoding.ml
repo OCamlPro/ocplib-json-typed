@@ -57,6 +57,8 @@ type _ encoding =
   | Empty : unit encoding
   | Ignore : unit encoding
   | Constant : string -> unit encoding
+  (* Json floats (64bits/doubles) can safely represent all 54 bits integers *)
+  | Int54 : 'a int54_encoding -> 'a encoding
   | Int : 'a int_encoding -> 'a encoding
   | Bool : bool encoding
   | String : string encoding
@@ -72,10 +74,16 @@ type _ encoding =
   | Mu : string * ('a encoding -> 'a encoding) -> 'a encoding
   | Union : 't case list -> 't encoding
 
-and 'a int_encoding =
-  { name : string ;
+and 'a int54_encoding =
+  { name54 : string ;
     of_float : float -> 'a ;
     to_float : 'a -> float ;
+    lower_bound54 : 'a ;
+    upper_bound54 : 'a }
+and 'a int_encoding =
+  { name : string ;
+    of_string : string -> 'a ;
+    to_string : 'a -> string ;
     lower_bound : 'a ;
     upper_bound : 'a }
 
@@ -102,11 +110,18 @@ module Make (Repr : Json_repr.Repr) = struct
         | Empty -> (fun () -> Repr.repr (`O []))
         | Ignore -> (fun () -> Repr.repr (`O []))
         | Constant str -> (fun () -> Repr.repr (`String str))
-        | Int { name ; to_float ; lower_bound ; upper_bound } ->
-          let err = "Json_encoding.construct: " ^ name ^ " out of range" in
+        | Int54 { name54 ; to_float ; lower_bound54 ; upper_bound54 } ->
           (fun (i : t) ->
-             if i < lower_bound || i > upper_bound then invalid_arg err ;
+             if i < lower_bound54 || i > upper_bound54 then
+               invalid_arg
+                 ("Json_encoding.construct: " ^ name54 ^ " out of range");
              Repr.repr (`Float (to_float  i)))
+        | Int { name ; to_string ; lower_bound ; upper_bound } ->
+          (fun (i : t) ->
+             if i < lower_bound || i > upper_bound then
+               invalid_arg
+                 ("Json_encoding.construct: " ^ name ^ " out of range");
+             Repr.repr (`String (to_string  i)))
         | Bool -> (fun (b : t) -> Repr.repr (`Bool b))
         | String -> (fun s -> Repr.repr (`String s))
         | Float (Some { minimum ; maximum }) ->
@@ -174,22 +189,33 @@ module Make (Repr : Json_repr.Repr) = struct
            match Repr.view v with
            | `String s when s = str -> ()
            | x -> raise @@ unexpected x str)
-      | Int { name ; of_float ; to_float ; lower_bound ; upper_bound } ->
-        let lower_bound = to_float lower_bound in
-        let upper_bound = to_float upper_bound in
+      | Int54 { name54 ; of_float ; to_float ; lower_bound54 ; upper_bound54 } ->
+        let lower_bound = to_float lower_bound54 in
+        let upper_bound = to_float upper_bound54 in
         (fun v ->
            match Repr.view v with
            | `Float v ->
              let rest, v = modf v in
              if rest <> 0. then begin
-               let exn = Failure (name ^ " cannot have a fractional part") in
+               let exn = Failure (name54 ^ " cannot have a fractional part") in
                raise (Cannot_destruct ([], exn))
              end ;
+             if v < lower_bound || v > upper_bound then begin
+               let exn = Failure (name54 ^ " out of range") in
+               raise (Cannot_destruct ([], exn))
+             end ;
+             of_float v
+           | k -> raise (unexpected k "number"))
+      | Int { name ; of_string ; to_string ; lower_bound ; upper_bound } ->
+        (fun v ->
+           match Repr.view v with
+           | `String s ->
+             let v = of_string s in
              if v < lower_bound || v > upper_bound then begin
                let exn = Failure (name ^ " out of range") in
                raise (Cannot_destruct ([], exn))
              end ;
-             of_float v
+             v
            | k -> raise (unexpected k "number"))
       | Bool -> (fun v -> match Repr.view v with `Bool b -> (b : t) | k -> raise (unexpected k "boolean"))
       | String -> (fun v -> match Repr.view v with `String s -> s | k -> raise (unexpected k "string"))
@@ -407,19 +433,23 @@ let schema encoding =
       | Null -> element Null
       | Empty -> element (Object { object_specs with additional_properties = None })
       | Ignore -> element Any
-      | Int { to_float ; lower_bound ; upper_bound } ->
-        let minimum = Some (to_float lower_bound, `Inclusive) in
-        let maximum = Some (to_float upper_bound, `Inclusive) in
-        element (Integer { multiple_of = None ; minimum ; maximum })
+      | Int54 { to_float ; lower_bound54 ; upper_bound54 } ->
+        let num_minimum = Some (to_float lower_bound54, `Inclusive) in
+        let num_maximum = Some (to_float upper_bound54, `Inclusive) in
+        element (Number { num_multiple_of = None ; num_minimum ; num_maximum })
+      | Int { to_string ; lower_bound ; upper_bound } ->
+        let int_minimum = Some (int_of_string (to_string lower_bound), `Inclusive) in
+        let int_maximum = Some (int_of_string (to_string upper_bound), `Inclusive) in
+        element (Integer { int_multiple_of = None ; int_minimum ; int_maximum })
       | Bool -> element Boolean
       | Constant str ->
         { (element (String string_specs)) with
           enum = Some [ Json_repr.to_any (`String str) ] }
       | String -> element (String string_specs)
       | Float (Some { minimum ; maximum }) ->
-        element (Number { multiple_of = None ;
-                          minimum = Some (minimum, `Inclusive) ;
-                          maximum = Some (maximum, `Inclusive) })
+        element (Number { num_multiple_of = None ;
+                          num_minimum = Some (minimum, `Inclusive) ;
+                          num_maximum = Some (maximum, `Inclusive) })
       | Float None -> element (Number numeric_specs)
       | Describe (None, None, t) -> schema t
       | Describe (Some _ as title, None, t) ->
@@ -497,21 +527,28 @@ let dft ?title ?description n t d = Dft (n, Describe (title, description, t), d)
 let mu name self = Mu (name, self)
 let null = Null
 let int =
-  Int { name = "int" ;
-        of_float = int_of_float ;
-        to_float = float_of_int ;
-        lower_bound = -(1 lsl 30) ;
-        upper_bound = (1 lsl 30) - 1 }
+  Int54 { name54 = "int" ;
+          of_float = int_of_float ;
+          to_float = float_of_int ;
+          (* cross-platform consistent OCaml ints *)
+          lower_bound54 = -(1 lsl 30) ;
+          upper_bound54 = (1 lsl 30) - 1 }
 let ranged_int ~minimum ~maximum name =
-  Int { name ;
-        of_float = int_of_float ;
-        to_float = float_of_int ;
-        lower_bound = minimum ;
-        upper_bound = maximum }
+  if minimum < -(1 lsl 53) || maximum > (1 lsl 53) - 1 then
+    Int { name ;
+          of_string = int_of_string ;
+          to_string = string_of_int ;
+          lower_bound = minimum ;
+          upper_bound = maximum }
+  else
+    Int54 { name54 = name ;
+            of_float = int_of_float ;
+            to_float = float_of_int ;
+            lower_bound54 = -(1 lsl 30) ;
+            upper_bound54 = (1 lsl 30) - 1 }
 
 let ranged_float ~minimum ~maximum name =
-  Float (Some { minimum ;
-                maximum })
+  Float (Some { minimum ; maximum })
 
 let float = Float None
 let string = String
@@ -673,7 +710,19 @@ let assoc : type t. t encoding -> (string * t) list encoding = fun t ->
     (let s = schema t in
      Json_schema.(update (element (Object { object_specs with additional_properties = Some (root s)})) s))
 
+let is_option t =
+  let s = schema t in
+  match Json_schema.root s with
+  | { kind = Combine (One_of, [_; { kind = Null }]) } -> true
+  | _ -> false
+let is_null: type t. t encoding -> bool = function
+  | Null -> true
+  | _ -> false
 let option : type t. t encoding -> t option encoding = fun t ->
+  if is_option t then
+    raise (Invalid_argument "Cannot create encoding for _ option option");
+  if is_null t then
+    raise (Invalid_argument "Cannot create encoding for (option null)");
   let read
     : type tf. (module Json_repr.Repr with type value = tf) -> tf -> t option
     = fun (module Repr_f) repr ->
@@ -696,11 +745,11 @@ let option : type t. t encoding -> t option encoding = fun t ->
   Custom ({ read ; write }, schema)
 
 let int32 =
-  Int { name = "int32" ;
-        of_float = Int32.of_float ;
-        to_float = Int32.to_float ;
-        lower_bound = Int32.min_int ;
-        upper_bound = Int32.max_int }
+  Int54 { name54 = "int32" ;
+          of_float = Int32.of_float ;
+          to_float = Int32.to_float ;
+          lower_bound54 = Int32.min_int ;
+          upper_bound54 = Int32.max_int }
 
 let any_value =
   let read repr v = Json_repr.repr_to_any repr v in

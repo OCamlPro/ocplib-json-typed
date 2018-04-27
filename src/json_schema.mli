@@ -58,7 +58,7 @@ and element_kind =
   (** A ref to an external element. *)
   | String of string_specs
   (** A string (with optional characteristics). *)
-  | Integer of numeric_specs
+  | Integer of integer_specs
   (** An int (with optional characteristics). *)
   | Number of numeric_specs
   (** A float (with optional characteristics). *)
@@ -90,13 +90,22 @@ and array_specs =
     additional_items : element option ;
     (** The type of additional items, if allowed. *) }
 
-(** Parameters of the [Integer] and [Number] type specifiers. *)
+(** Parameters of the [Number] type specifier. *)
 and numeric_specs =
-  { multiple_of : float option ;
+  { num_multiple_of : float option ;
     (** An optional divisor of valid values *)
-    minimum : (float * [ `Inclusive | `Exclusive ]) option ;
+    num_minimum : (float * [ `Inclusive | `Exclusive ]) option ;
     (** The optional lower bound of the numeric range *)
-    maximum : (float * [ `Inclusive | `Exclusive ]) option
+    num_maximum : (float * [ `Inclusive | `Exclusive ]) option
+    (** The optional upper bound of the numeric range *) }
+
+(** Parameters of the [Integer] type specifier. *)
+and integer_specs =
+  { int_multiple_of : int option ;
+    (** An optional divisor of valid values *)
+    int_minimum : (int * [ `Inclusive | `Exclusive ]) option ;
+    (** The optional lower bound of the numeric range *)
+    int_maximum : (int * [ `Inclusive | `Exclusive ]) option
     (** The optional upper bound of the numeric range *) }
 
 (** Parameters of the [Object] type specifier. *)

@@ -118,7 +118,10 @@ val float : float encoding
 (** An encoding of an OCaml float by a JSON number with range constraints  *)
 val ranged_float : minimum:float -> maximum:float -> string -> float encoding
 
-(** An encoding of an OCaml option by a nullable JSON value. *)
+(** An encoding of an OCaml option by a nullable JSON value. Raises
+    [Invalid_argument] when nesting options – i.e., when building ['a option
+    option encoding]. Also raises [Invalid_argument] when used on the encoding
+    of [null]. *)
 val option : 'a encoding -> 'a option encoding
 
 (** {2 JSON type combinators for objects} *) (*********************************)
