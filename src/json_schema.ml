@@ -812,9 +812,7 @@ module Make (Repr : Json_repr.Repr) = struct
           | Some { kind } -> kind in
         (* add optional fields *)
         { title ; description ; default ; format ; kind ; enum ; id }
-    and parse_element_kind
-      : type a. Uri.t -> Repr.value -> string -> element_kind
-      = fun source json name ->
+    and parse_element_kind source json name =
         let numeric_specs json =
           let multiple_of = opt_float_field json "multipleOf" in
           let minimum =
