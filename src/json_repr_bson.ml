@@ -352,7 +352,7 @@ module Repr = struct
               { buffer = result ; offset ; length ; array_field  } in
             bson.node <- Both (deserialized, serialized)
           end in
-      serialize root.conforming root ;
+      serialize conforming root ;
       result
 
   let from_bytes ~laziness ~cache ~conforming buffer =
