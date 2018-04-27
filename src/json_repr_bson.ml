@@ -17,6 +17,7 @@
 (*                                                                      *)
 (************************************************************************)
 
+open Ocplib_json_typed
 open Json_repr
 
 module Repr = struct
@@ -207,25 +208,25 @@ module Repr = struct
         serialized.buffer
       else
         Bytes.sub serialized.buffer serialized.offset serialized.length
-    | Deserialized deserialized ->
+    | Deserialized _ ->
       let rec compute_size bson =
         match bson.node with
-        | Serialized { buffer ; offset ; length }
-        | Both (_, { buffer ; offset ; length }) ->
+        | Serialized { length }
+        | Both (_, { length }) ->
           length
         | Deserialized deserialized ->
           match deserialized with
-          | `Float f -> 4 + 1 + 8 + 1
+          | `Float _ -> 4 + 1 + 8 + 1
           | `String str -> 4 + 1 + 4 + String.length str + 1 + 1
-          | `Bool b -> 4 + 1 + 1 + 1
+          | `Bool _ -> 4 + 1 + 1 + 1
           | `Null -> 4 + 1 + 1
           | `O fields ->
             let acc = List.fold_left
                 (fun acc (name, bson) ->
                    let self = match view bson with
-                     | `Float f -> 8
+                     | `Float _ -> 8
                      | `String str -> 4 + String.length str + 1
-                     | `Bool b -> 1
+                     | `Bool _ -> 1
                      | `Null -> 0
                      | `O _ | `A _ -> compute_size bson in
                    acc +  1 + String.length name + 1 + self)
@@ -235,9 +236,9 @@ module Repr = struct
             let acc, _ = List.fold_left
                 (fun (acc, i) bson ->
                    let self = match view bson with
-                     | `Float f -> 8
+                     | `Float _ -> 8
                      | `String str -> 4 + String.length str + 1
-                     | `Bool b -> 1
+                     | `Bool _ -> 1
                      | `Null -> 0
                      | `O _ | `A _ -> compute_size bson in
                    let rec digits acc i =
@@ -352,7 +353,7 @@ module Repr = struct
               { buffer = result ; offset ; length ; array_field  } in
             bson.node <- Both (deserialized, serialized)
           end in
-      serialize root.conforming root ;
+      serialize conforming root ;
       result
 
   let from_bytes ~laziness ~cache ~conforming buffer =

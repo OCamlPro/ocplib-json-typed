@@ -116,7 +116,7 @@ val bytes : bytes encoding
 val float : float encoding
 
 (** An encoding of an OCaml float by a JSON number with range constraints  *)
-val ranged_float : minimum:float -> maximum:float -> string -> float encoding
+val ranged_float : minimum:float -> maximum:float -> float encoding
 
 (** An encoding of an OCaml option by a nullable JSON value. *)
 val option : 'a encoding -> 'a option encoding
@@ -343,6 +343,9 @@ val mu : string -> ('a encoding -> 'a encoding) -> 'a encoding
 
 (** A raw JSON value in ezjsonm representation. *)
 val any_ezjson_value : Json_repr.ezjsonm encoding
+
+(** A valid JSON document (i.e. an array or object value). *)
+val any_document : Json_repr.any encoding
 
 (** The encoding of a JSON schema, linked to its OCaml definiton. *)
 val any_schema : Json_schema.schema encoding

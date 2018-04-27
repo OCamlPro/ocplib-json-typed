@@ -17,6 +17,8 @@
 (*                                                                      *)
 (************************************************************************)
 
+open Ocplib_json_typed
+
 (** A intermediate representation for BSON, a binary encoding for JSON.
 
     Decoding and encoding is (optionally) done as lazily as possible.
