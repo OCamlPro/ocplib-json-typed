@@ -509,7 +509,7 @@ let ranged_int ~minimum ~maximum name =
         lower_bound = minimum ;
         upper_bound = maximum }
 
-let ranged_float ~minimum ~maximum name =
+let ranged_float ~minimum ~maximum =
   Float (Some { minimum ;
                 maximum })
 
