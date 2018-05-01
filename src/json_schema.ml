@@ -575,7 +575,8 @@ module Make (Repr : Json_repr.Repr) = struct
           set_always "$ref" (`String (Uri.to_string uri))
         | Integer specs ->
           set_always "type" (`String "integer") @
-          set_if_some "multipleOf" specs.multiple_of (fun v -> `Float v) @
+          set_if_some "multipleOf"
+            specs.multiple_of (fun v -> `Float v) @
           (match specs.minimum with
            | None -> []
            | Some (v, `Inclusive) ->
@@ -666,8 +667,18 @@ module Make (Repr : Json_repr.Repr) = struct
       | Some k -> raise (at_field n @@ unexpected k "bool")
       | None -> def in
     let opt_int_field obj n = match opt_field_view obj n with
-      | Some (`Float f) when (fst (modf f) = 0.) -> Some (int_of_float f)
+      | Some (`Float f) when (fst (modf f) = 0.
+                              && f <= 2. ** 53.
+                              && f >= -2. ** 53.) ->
+        Some f
       | Some k -> raise (at_field n @@ unexpected k "integer")
+      | None -> None in
+    let opt_length_field obj n = match opt_field_view obj n with
+      | Some (`Float f) when (fst (modf f) = 0.
+                              && f <= 2. ** 30.
+                              && f >= 0.) ->
+        Some (int_of_float f)
+      | Some k -> raise (at_field n @@ unexpected k "length")
       | None -> None in
     let opt_float_field obj n = match opt_field_view obj n with
       | Some (`Float f) -> Some f
@@ -812,160 +823,187 @@ module Make (Repr : Json_repr.Repr) = struct
           | Some { kind } -> kind in
         (* add optional fields *)
         { title ; description ; default ; format ; kind ; enum ; id }
-    and parse_element_kind source json name =
-        let numeric_specs json =
-          let multiple_of = opt_float_field json "multipleOf" in
-          let minimum =
-            if opt_bool_field false json "exclusiveMinimum" then
-              match opt_float_field json "minimum" with
-              | None ->
-                let err =
-                  "minimum field required when exclusiveMinimum is true" in
-                raise (Failure err)
-              | Some v -> Some (v, `Inclusive)
-            else
-              match opt_float_field json "minimum" with
-              | None -> None
-              | Some v -> Some (v, `Exclusive) in
-          let maximum =
-            if opt_bool_field false json "exclusiveMaximum" then
-              match opt_float_field json "maximum" with
-              | None ->
-                let err =
-                  "maximum field required when exclusiveMaximum is true" in
-                raise (Failure err)
-              | Some v -> Some (v, `Inclusive)
-            else
-              match opt_float_field json "maximum" with
-              | None -> None
-              | Some v -> Some (v, `Exclusive) in
-          { multiple_of ; minimum ; maximum} in
-        match name with
-        | "integer" ->
-          Integer (numeric_specs json)
-        | "number" ->
-          Number (numeric_specs json)
-        | "boolean" -> Boolean
-        | "null" -> Null
-        | "string" ->
-          let specs =
-            let pattern = opt_string_field json "pattern" in
-            let min_length = opt_int_field json "minLength" in
-            let max_length = opt_int_field json "maxLength" in
-            let min_length = match min_length with None -> 0 | Some l -> l in
-            { pattern ; min_length ; max_length } in
-          String specs
-        | "array" ->
-          let specs =
-            let unique_items = opt_bool_field false json "uniqueItems" in
-            let min_items = opt_int_field json "minItems" in
-            let max_items = opt_int_field json "maxItems" in
-            let min_items = match min_items with None -> 0 | Some l -> l in
-            match opt_field_view json "additionalItems" with
-            | Some (`Bool true) ->
-              { min_items ; max_items ; unique_items ; additional_items = Some (element Any) }
-            | None | Some (`Bool false) ->
-              { min_items ; max_items ; unique_items ; additional_items = None }
-            | Some elt ->
-              let elt = try parse_element source (Repr.repr elt)
-                with err -> raise (at_field "additionalItems" err) in
-              { min_items ; max_items ; unique_items ; additional_items = Some elt } in
-          begin match opt_field_view json "items" with
-            | Some (`A elts) ->
-              let rec elements i acc = function
-                | [] ->
-                  Array (List.rev acc, specs)
-                | elt :: tl ->
-                  let elt = try parse_element source elt
-                    with err -> raise (at_field "items" @@ at_index i err) in
-                  elements (succ i) (elt :: acc) tl
-              in elements 0 [] elts
-            | Some elt ->
-              let elt = try parse_element source (Repr.repr elt)
-                with err -> raise (at_field "items" err) in
-              Monomorphic_array (elt, specs)
+    and parse_element_kind  source json name =
+      let integer_specs json =
+        let multiple_of = opt_int_field json "multipleOf" in
+        let minimum =
+          if opt_bool_field false json "exclusiveMinimum" then
+            match opt_int_field json "minimum" with
             | None ->
-              Monomorphic_array (element Any, specs) end
-        | "object" ->
-          let required =
-            match opt_array_field json "required" with
-            | None ->  []
-            | Some l ->
-              let rec items i acc = function
-                | `String s :: tl -> items (succ i) (s :: acc) tl
-                | [] -> List.rev acc
-                | k :: _ -> raise (at_field "required" @@ at_index i @@ unexpected k "string")
-              in items 0 [] (List.map Repr.view l) in
-          let properties =
-            match opt_field_view json "properties" with
-            | Some (`O props) ->
-              let rec items acc = function
-                | [] -> List.rev acc
-                | (n, elt) :: tl ->
-                  let elt = try parse_element source elt
-                    with err -> raise (at_field "properties" @@ at_field n @@ err) in
-                  let req = List.mem n required in
-                  items ((n, elt, req, None) :: acc) tl (* XXX: fixme *)
-              in items [] props
-            | None -> []
-            | Some k -> raise (at_field "properties" @@ unexpected k "object") in
-          let additional_properties =
-            match opt_field_view json "additionalProperties" with
-            | Some (`Bool false) -> None
-            | None | Some (`Bool true) -> Some (element Any)
-            | Some elt ->
-              let elt = try parse_element source (Repr.repr elt)
-                with err -> raise (at_field "additionalProperties" err) in
-              Some elt in
-          let property_dependencies =
-            match opt_field_view json "propertyDependencies" with
-            | None -> []
-            | Some (`O l) ->
-              let rec sets sacc = function
-                | (n, `A l) :: tl ->
-                  let rec strings j acc = function
-                    | [] -> sets ((n, List.rev acc) :: sacc) tl
-                    | `String s :: tl -> strings (succ j) (s :: acc) tl
-                    | k :: _ ->
-                      raise (at_field "propertyDependencies" @@
-                             at_field n @@
-                             at_index j @@
-                             unexpected k "string")
-                  in strings 0 [] (List.map Repr.view l)
-                | (n, k) :: _ ->
-                  raise (at_field "propertyDependencies" @@
-                         at_field n @@
-                         unexpected k "string array")
-                | [] -> List.rev sacc
-              in sets [] (List.map (fun (n, v) -> (n, Repr.view v)) l)
-            | Some k ->
-              raise (at_field "propertyDependencies" @@
-                     unexpected k "object") in
-          let parse_element_assoc field =
-            match opt_field_view json field with
-            | None -> []
-            | Some (`O props) ->
-              let rec items acc = function
-                | [] -> List.rev acc
-                | (n, elt) :: tl ->
-                  let elt = try parse_element source elt
-                    with err -> raise (at_field field @@
-                                       at_field n err) in
-                  items ((n, elt) :: acc) tl
-              in items [] props
-            | Some k -> raise (at_field field @@ unexpected k "object") in
-          let pattern_properties = parse_element_assoc "patternProperties" in
-          let schema_dependencies = parse_element_assoc "schemaDependencies" in
-          let min_properties =
-            match opt_int_field json "minProperties" with
-            | None -> 0
-            | Some l -> l in
-          let max_properties = opt_int_field json "maxProperties" in
-          Object { properties ; pattern_properties ;
-                   additional_properties ;
-                   min_properties ; max_properties ;
-                   schema_dependencies ; property_dependencies }
-        | n -> raise (Cannot_parse ([], Unexpected (n, "a known type"))) in
+              let err =
+                "minimum field required when exclusiveMinimum is true" in
+              raise (Failure err)
+            | Some v -> Some (v, `Inclusive)
+          else
+            match opt_int_field json "minimum" with
+            | None -> None
+            | Some v -> Some (v, `Exclusive) in
+        let maximum =
+          if opt_bool_field false json "exclusiveMaximum" then
+            match opt_int_field json "maximum" with
+            | None ->
+              let err =
+                "maximum field required when exclusiveMaximum is true" in
+              raise (Failure err)
+            | Some v -> Some (v, `Inclusive)
+          else
+            match opt_int_field json "maximum" with
+            | None -> None
+            | Some v -> Some (v, `Exclusive) in
+        { multiple_of ; minimum ; maximum} in
+      let numeric_specs json =
+        let multiple_of = opt_float_field json "multipleOf" in
+        let minimum =
+          if opt_bool_field false json "exclusiveMinimum" then
+            match opt_float_field json "minimum" with
+            | None ->
+              let err =
+                "minimum field required when exclusiveMinimum is true" in
+              raise (Failure err)
+            | Some v -> Some (v, `Inclusive)
+          else
+            match opt_float_field json "minimum" with
+            | None -> None
+            | Some v -> Some (v, `Exclusive) in
+        let maximum =
+          if opt_bool_field false json "exclusiveMaximum" then
+            match opt_float_field json "maximum" with
+            | None ->
+              let err =
+                "maximum field required when exclusiveMaximum is true" in
+              raise (Failure err)
+            | Some v -> Some (v, `Inclusive)
+          else
+            match opt_float_field json "maximum" with
+            | None -> None
+            | Some v -> Some (v, `Exclusive) in
+        { multiple_of ; minimum ; maximum} in
+      match name with
+      | "integer" ->
+        Integer (integer_specs json)
+      | "number" ->
+        Number (numeric_specs json)
+      | "boolean" -> Boolean
+      | "null" -> Null
+      | "string" ->
+        let specs =
+          let pattern = opt_string_field json "pattern" in
+          let min_length = opt_length_field json "minLength" in
+          let max_length = opt_length_field json "maxLength" in
+          let min_length = match min_length with None -> 0 | Some l -> l in
+          { pattern ; min_length ; max_length } in
+        String specs
+      | "array" ->
+        let specs =
+          let unique_items = opt_bool_field false json "uniqueItems" in
+          let min_items = opt_length_field json "minItems" in
+          let max_items = opt_length_field json "maxItems" in
+          let min_items = match min_items with None -> 0 | Some l -> l in
+          match opt_field_view json "additionalItems" with
+          | Some (`Bool true) ->
+            { min_items ; max_items ; unique_items ; additional_items = Some (element Any) }
+          | None | Some (`Bool false) ->
+            { min_items ; max_items ; unique_items ; additional_items = None }
+          | Some elt ->
+            let elt = try parse_element source (Repr.repr elt)
+              with err -> raise (at_field "additionalItems" err) in
+            { min_items ; max_items ; unique_items ; additional_items = Some elt } in
+        begin match opt_field_view json "items" with
+          | Some (`A elts) ->
+            let rec elements i acc = function
+              | [] ->
+                Array (List.rev acc, specs)
+              | elt :: tl ->
+                let elt = try parse_element source elt
+                  with err -> raise (at_field "items" @@ at_index i err) in
+                elements (succ i) (elt :: acc) tl
+            in elements 0 [] elts
+          | Some elt ->
+            let elt = try parse_element source (Repr.repr elt)
+              with err -> raise (at_field "items" err) in
+            Monomorphic_array (elt, specs)
+          | None ->
+            Monomorphic_array (element Any, specs) end
+      | "object" ->
+        let required =
+          match opt_array_field json "required" with
+          | None ->  []
+          | Some l ->
+            let rec items i acc = function
+              | `String s :: tl -> items (succ i) (s :: acc) tl
+              | [] -> List.rev acc
+              | k :: _ -> raise (at_field "required" @@ at_index i @@ unexpected k "string")
+            in items 0 [] (List.map Repr.view l) in
+        let properties =
+          match opt_field_view json "properties" with
+          | Some (`O props) ->
+            let rec items acc = function
+              | [] -> List.rev acc
+              | (n, elt) :: tl ->
+                let elt = try parse_element source elt
+                  with err -> raise (at_field "properties" @@ at_field n @@ err) in
+                let req = List.mem n required in
+                items ((n, elt, req, None) :: acc) tl (* XXX: fixme *)
+            in items [] props
+          | None -> []
+          | Some k -> raise (at_field "properties" @@ unexpected k "object") in
+        let additional_properties =
+          match opt_field_view json "additionalProperties" with
+          | Some (`Bool false) -> None
+          | None | Some (`Bool true) -> Some (element Any)
+          | Some elt ->
+            let elt = try parse_element source (Repr.repr elt)
+              with err -> raise (at_field "additionalProperties" err) in
+            Some elt in
+        let property_dependencies =
+          match opt_field_view json "propertyDependencies" with
+          | None -> []
+          | Some (`O l) ->
+            let rec sets sacc = function
+              | (n, `A l) :: tl ->
+                let rec strings j acc = function
+                  | [] -> sets ((n, List.rev acc) :: sacc) tl
+                  | `String s :: tl -> strings (succ j) (s :: acc) tl
+                  | k :: _ ->
+                    raise (at_field "propertyDependencies" @@
+                           at_field n @@
+                           at_index j @@
+                           unexpected k "string")
+                in strings 0 [] (List.map Repr.view l)
+              | (n, k) :: _ ->
+                raise (at_field "propertyDependencies" @@
+                       at_field n @@
+                       unexpected k "string array")
+              | [] -> List.rev sacc
+            in sets [] (List.map (fun (n, v) -> (n, Repr.view v)) l)
+          | Some k ->
+            raise (at_field "propertyDependencies" @@
+                   unexpected k "object") in
+        let parse_element_assoc field =
+          match opt_field_view json field with
+          | None -> []
+          | Some (`O props) ->
+            let rec items acc = function
+              | [] -> List.rev acc
+              | (n, elt) :: tl ->
+                let elt = try parse_element source elt
+                  with err -> raise (at_field field @@
+                                     at_field n err) in
+                items ((n, elt) :: acc) tl
+            in items [] props
+          | Some k -> raise (at_field field @@ unexpected k "object") in
+        let pattern_properties = parse_element_assoc "patternProperties" in
+        let schema_dependencies = parse_element_assoc "schemaDependencies" in
+        let min_properties =
+          match opt_length_field json "minProperties" with
+          | None -> 0
+          | Some l -> l in
+        let max_properties = opt_length_field json "maxProperties" in
+        Object { properties ; pattern_properties ;
+                 additional_properties ;
+                 min_properties ; max_properties ;
+                 schema_dependencies ; property_dependencies }
+      | n -> raise (Cannot_parse ([], Unexpected (n, "a known type"))) in
     (* parse recursively from the root *)
     let root = parse_element Uri.empty json in
     (* force the addition of everything inside /definitions *)

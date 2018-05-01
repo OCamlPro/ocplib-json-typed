@@ -81,21 +81,60 @@ val empty : unit encoding
     to be compatible with both 32-bit and 64bit native OCaml compilers
     as well as JavaScript). When constructing, the value coming from
     the OCaml world is assumed to be valid, otherwise an
-    [Invalid_argument] will be raised.
+    [Invalid_argument] will be raised (can only happen on 64-bit systems).
 
-    Use {!ranged_int} or {!int32} for better portability. *)
+    Use {!int32} or {!int53} for a greater range.
+    Use {!ranged_int} to restrict to an interval. *)
 val int : int encoding
 
-(** An encoding of an OCaml int by a JSON number.
+(** An encoding of an OCaml int32 by a JSON number.
+
+    Must be a floating point without fractional part and between
+    [-2^31] and [2^31-1] when destructing. Never fails when
+    constructing, as all 32-bit integers are included in JSON numbers. *)
+val int32 : int32 encoding
+
+(** An encoding of a JSON-representable OCaml int64 by a JSON number.
+
+    Restricted to the [-2^53] to [2^53] range, as this is the limit of
+    representable integers in JSON numbers. Must be a floating point
+    without fractional part and in this range when destructing. When
+    constructing, the value coming from the OCaml world is assumed to
+    be in this range, otherwise an [Invalid_argument] will be raised. *)
+val int53 : int64 encoding
+
+(** An encoding of an OCaml int by a JSON number restricted to a specific range.
+
+    The bounds must be between [-2^30] and [2^30-1].
 
     The inclusive bounds are checked when destructing. When
     constructing, the value coming from the OCaml world is assumed to
-    be valid, otherwise an [Invalid_argument] will be raised. The
-    string parameter is a name used to tweak the error messages. *)
+    be within the bounds, otherwise an [Invalid_argument] will be
+    raised. The string parameter is a name used to tweak the error
+    messages. *)
 val ranged_int : minimum: int -> maximum: int -> string -> int encoding
 
-(** An encoding of an OCaml int32 by a JSON number. *)
-val int32 : int32 encoding
+(** An encoding of an OCaml int32 by a JSON number restricted to a specific range.
+
+    The bounds must be between [-2^31] and [2^31-1].
+
+    The inclusive bounds are checked when destructing. When
+    constructing, the value coming from the OCaml world is assumed to
+    be within the bounds, otherwise an [Invalid_argument] will be
+    raised. The string parameter is a name used to tweak the error
+    messages. *)
+val ranged_int32 : minimum: int32 -> maximum: int32 -> string -> int32 encoding
+
+(** An encoding of an OCaml int64 by a JSON number restricted to a specific range.
+
+    The bounds must be between [-2^53] and [2^53].
+
+    The inclusive bounds are checked when destructing. When
+    constructing, the value coming from the OCaml world is assumed to
+    be within the bounds, otherwise an [Invalid_argument] will be
+    raised. The string parameter is a name used to tweak the error
+    messages. *)
+val ranged_int53 : minimum: int64 -> maximum: int64 -> string -> int64 encoding
 
 (** An encoding of an OCaml boolean by a JSON one. *)
 val bool : bool encoding
