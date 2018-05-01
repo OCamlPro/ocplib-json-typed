@@ -283,6 +283,7 @@ module Make (Repr : Json_repr.Repr) = struct
         let r, i = destruct_tup i t in
         (fun arr -> fto (r arr)), i
       | Mu (_, self) as mu -> destruct_tup i (self mu)
+      | Describe (_, _, enc) -> destruct_tup i enc
       | _ -> invalid_arg "Json_encoding.destruct: consequence of bad merge_tups"
   and destruct_obj
     : type t. t encoding -> (string * Repr.value) list -> t * (string * Repr.value) list * bool
@@ -335,6 +336,7 @@ module Make (Repr : Json_repr.Repr) = struct
            let r, rest, ign = d fields in
            fto r, rest, ign)
       | Mu (_, self) as mu -> destruct_obj (self mu)
+      | Describe (_, _, enc) -> destruct_obj enc
       | Union cases ->
         (fun fields ->
            let rec do_cases errs = function
