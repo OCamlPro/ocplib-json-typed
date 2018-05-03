@@ -56,6 +56,7 @@ type _ encoding =
   | Null : unit encoding
   | Empty : unit encoding
   | Ignore : unit encoding
+  | Option : 'a encoding -> 'a option encoding
   | Constant : string -> unit encoding
   | Int : 'a int_encoding -> 'a encoding
   | Bool : bool encoding
@@ -103,6 +104,10 @@ module Make (Repr : Json_repr.Repr) = struct
         | Null -> (fun () -> Repr.repr `Null)
         | Empty -> (fun () -> Repr.repr (`O []))
         | Ignore -> (fun () -> Repr.repr (`O []))
+        | Option t ->
+          (function
+            | None -> Repr.repr `Null
+            | Some v -> construct t v)
         | Constant str -> (fun () -> Repr.repr (`String str))
         | Int { int_name ; to_float ; lower_bound ; upper_bound } ->
           (fun (i : t) ->
@@ -172,6 +177,9 @@ module Make (Repr : Json_repr.Repr) = struct
           | `O [ f, _] -> raise (Cannot_destruct ([], Unexpected_field f))
           | k -> raise @@ unexpected k "an empty object")
       | Ignore -> (fun v -> match Repr.view v with _ -> ())
+      | Option t -> (fun v -> match Repr.view v with
+          | `Null -> None
+          | _ -> Some (destruct t v))
       | Constant str ->
         (fun v ->
            match Repr.view v with
@@ -414,6 +422,8 @@ let schema encoding =
       | Null -> element Null
       | Empty -> element (Object { object_specs with additional_properties = None })
       | Ignore -> element Any
+      | Option t ->
+        element (Combine (One_of, [schema t ; element Null]))
       | Int { to_float ; lower_bound ; upper_bound } ->
         let minimum = Some (to_float lower_bound, `Inclusive) in
         let maximum = Some (to_float upper_bound, `Inclusive) in
@@ -713,39 +723,32 @@ let assoc : type t. t encoding -> (string * t) list encoding = fun t ->
     ~schema:(let s = schema t in
      Json_schema.(update (element (Object { object_specs with additional_properties = Some (root s)})) s))
 
-let is_option t =
-  let s = schema t in
-  match Json_schema.root s with
-  | { kind = Combine (One_of, [_; { kind = Null }]) } -> true
-  | _ -> false
-let is_null: type t. t encoding -> bool = function
+let rec is_nullable: type t. t encoding -> bool = function
+  | Constant _ -> false
+  | Int _ -> false
+  | Float _ -> false
+  | Array _ -> false
+  | Empty -> false
+  | String -> false
+  | Bool -> false
+  | Obj _ -> false
+  | Tup _ -> false
+  | Objs _ -> false
+  | Tups _ -> false
   | Null -> true
-  | _ -> false
+  | Ignore -> true
+  | Option _ -> true
+  | Conv (_, _, t, _) -> is_nullable t
+  | Union cases ->
+    List.exists (fun (Case (t, _, _)) -> is_nullable t) cases
+  | Describe (_, _, t) -> is_nullable t
+  | Mu (_, f) as self -> is_nullable (f self)
+  | Custom (_, sch) -> Json_schema.is_nullable sch
+
 let option : type t. t encoding -> t option encoding = fun t ->
-  if is_option t then
-    invalid_arg "Json_encoding.option: cannot create encoding for _ option option";
-  if is_null t then
-    invalid_arg "Json_encoding.option: cannot create encoding for (option null)";
-  let read
-    : type tf. (module Json_repr.Repr with type value = tf) -> tf -> t option
-    = fun (module Repr_f) repr ->
-      match Repr_f.view repr with
-      | `Null -> None
-      | _ ->
-        let module Repr_f_encoding = Make (Repr_f) in
-        Some (Repr_f_encoding.destruct t repr) in
-  let write
-    : type tf. (module Json_repr.Repr with type value = tf) -> t option -> tf
-    = fun (module Repr_f) v ->
-      match v with
-      | None -> Repr_f.repr `Null
-      | Some v ->
-        let module Repr_f_encoding = Make (Repr_f) in
-        Repr_f_encoding.construct t v in
-  let schema =
-    let s = schema t in
-    Json_schema.(update (element (Combine (One_of, [(root s) ; element Null]))) s) in
-  Custom ({ read ; write }, schema)
+  if is_nullable t then
+    invalid_arg "Json_encoding.option: cannot nest nullable encodings";
+  Option t
 
 let any_value =
   let read repr v = Json_repr.repr_to_any repr v in

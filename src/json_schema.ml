@@ -1162,6 +1162,31 @@ module Make (Repr : Json_repr.Repr) = struct
         combine sacc (s.root :: eacc) ss
     in combine any [] schemas
 
+  let is_nullable { ids ; definitions ; root } =
+    let rec nullable { kind } = match kind with
+      | Null | Any -> true
+      | Object _
+      | Array _
+      | Monomorphic_array _
+      | Ext_ref _
+      | String _
+      | Integer _
+      | Number _
+      | Boolean -> false
+      | Combine (Not, [ elt ]) ->
+        not (nullable elt)
+      | Combine (All_of, elts) ->
+        List.for_all nullable elts
+      | Combine ((Any_of | One_of), elts) ->
+        List.exists nullable elts
+      | Def_ref path ->
+        nullable (List.assoc path definitions)
+      | Id_ref id ->
+        nullable (List.assoc id ids)
+      | Combine (Not, _) | Dummy -> assert false in
+    nullable root
+
+
   (*-- default specs ---------------------------------------------------------*)
 
   let array_specs =

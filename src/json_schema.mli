@@ -155,6 +155,9 @@ val any : schema
 (** Combines several schemas. *)
 val combine : combinator -> schema list -> schema
 
+(** Tells is a schema accepts null. *)
+val is_nullable : schema -> bool
+
 (** {2 Named definitions} *) (***********************************************)
 
 (** Merges the definitions of two schemas if possible and returns the
