@@ -7,7 +7,7 @@ homepage: "https://github.com/ocamlpro/ocplib-json-typed"
 bug-reports: "https://github.com/ocamlpro/ocplib-json-typed/issues"
 license: "LGPLv3 w/ linking exception"
 dev-repo: "https://github.com/ocamlpro/ocplib-json-typed.git"
-available: [ ocaml-version >= "4.02.0" ]
+available: [ ocaml-version >= "4.03.0" ]
 
 build: [ "jbuilder" "build" "-j" jobs "-p" name "@install" ]
 build-test: [ "jbuilder" "runtest" "-p" name "-j" jobs ]
