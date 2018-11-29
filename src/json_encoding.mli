@@ -396,7 +396,7 @@ val any_schema : Json_schema.schema encoding
 
 (** Describe an encoding in JSON schema format.
     May raise {!Bad_schema}. *)
-val schema : 't encoding -> Json_schema.schema
+val schema : ?definitions_path:string -> 't encoding -> Json_schema.schema
 
 (** Annotate a type with a title and description for the JSON schema. *)
 val describe :
@@ -408,7 +408,7 @@ val describe :
 (** Name a definition so its occurences can be shared in the JSON
     schema.  The first parameter is a path, that must be unique and
     respect the format of {!Json_schema.add_definition}. *)
-val def : string -> 't encoding -> 't encoding
+val def : ?definitions_path:string -> string -> 't encoding -> 't encoding
 
 (** {2 Errors} *) (************************************************************)
 

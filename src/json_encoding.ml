@@ -374,7 +374,7 @@ end
 
 module Ezjsonm_encoding = Make (Json_repr.Ezjsonm)
 
-let schema encoding =
+let schema ?definitions_path encoding =
   let open Json_schema in
   let sch = ref any in
   let rec prod l1 l2 = match l1 with
@@ -454,17 +454,17 @@ let schema encoding =
       | Conv (_, _, t, None) -> schema t
       | Mu (name, f) ->
         let fake_schema =
-          if definition_exists name !sch then
-            update (definition_ref name) !sch
+          if definition_exists ?definitions_path name !sch then
+            update (definition_ref ?definitions_path name) !sch
           else
-            let sch, elt = add_definition name (element Dummy) !sch in
+            let sch, elt = add_definition ?definitions_path name (element Dummy) !sch in
             update elt sch in
         let fake_self =
           Custom ({ write = (fun _ _ -> assert false) ;
                     read = (fun _ -> assert false) },
                   fake_schema) in
         let root = schema (f fake_self) in
-        let nsch, def = add_definition name root !sch in
+        let nsch, def = add_definition ?definitions_path name root !sch in
         sch := nsch ; def
       | Array t ->
         element (Monomorphic_array (schema t, array_specs))
@@ -702,11 +702,11 @@ let string_enum cases =
     ~schema
     string
 
-let def name encoding =
+let def ?definitions_path name encoding =
   let schema =
     let open Json_schema in
-    let sch = schema encoding in
-    let sch, def = add_definition name (root sch) sch in
+    let sch = schema ?definitions_path encoding in
+    let sch, def = add_definition ?definitions_path name (root sch) sch in
     update def sch in
   conv (fun v -> v) (fun v -> v) ~schema encoding
 
