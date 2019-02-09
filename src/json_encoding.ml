@@ -57,6 +57,7 @@ type _ encoding =
   | Empty : unit encoding
   | Ignore : unit encoding
   | Option : 'a encoding -> 'a option encoding
+  | Result : 'a encoding * 'b encoding -> ('a, 'b) result encoding
   | Constant : string -> unit encoding
   | Int : 'a int_encoding -> 'a encoding
   | Bool : bool encoding
@@ -187,7 +188,10 @@ module Make (Repr : Json_repr.Repr) = struct
                  match proj v with
                  | Some v -> construct encoding v
                  | None -> do_cases rest in
-             do_cases cases) in
+             do_cases cases)
+        | Result (ok, err) ->
+          (function Ok v -> construct ok v | Error v -> construct err v)
+    in
     construct enc v
 
   let rec destruct
@@ -301,6 +305,16 @@ module Make (Repr : Json_repr.Repr) = struct
                try inj (destruct encoding v) with
                  err -> do_cases (err :: errs) rest in
            do_cases [] cases)
+
+      | Result (ok, err) ->
+        (fun v ->
+           try Ok (destruct ok v)
+           with err1 ->
+           try Error (destruct err v)
+           with err2 ->
+             raise (Cannot_destruct ([], No_case_matched [err1; err2]))
+        )
+
   and destruct_tup
     : type t. int -> t encoding -> (Repr.value array -> t) * int
     = fun i t -> match t with
@@ -534,7 +548,10 @@ let schema ?definitions_path encoding =
       | Union cases -> (* FIXME: smarter merge *)
         let elements =
           List.map (fun (Case { encoding }) -> schema encoding) cases in
-        element (Combine (One_of, elements)) in
+        element (Combine (One_of, elements))
+      | Result (ok, err) ->
+        element (Combine (One_of, [schema ok; schema err]))
+in
   let schema = schema encoding in
   update schema !sch
 
@@ -767,6 +784,7 @@ let rec is_nullable: type t. t encoding -> bool = function
   | Null -> true
   | Ignore -> true
   | Option _ -> true
+  | Result (a, b) -> is_nullable a || is_nullable b
   | Conv (_, _, t, _) -> is_nullable t
   | Union cases ->
     List.exists (fun (Case { encoding = t }) -> is_nullable t) cases
@@ -778,6 +796,10 @@ let option : type t. t encoding -> t option encoding = fun t ->
   if is_nullable t then
     invalid_arg "Json_encoding.option: cannot nest nullable encodings";
   Option t
+
+let result : type s t. s encoding -> t encoding -> (s, t) result encoding =
+  fun s t ->
+  Result (s, t)
 
 let any_value =
   let read repr v = Json_repr.repr_to_any repr v in

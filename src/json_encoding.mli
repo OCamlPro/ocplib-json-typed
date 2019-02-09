@@ -163,6 +163,9 @@ val ranged_float : minimum:float -> maximum:float -> string -> float encoding
     of [null]. *)
 val option : 'a encoding -> 'a option encoding
 
+(** Same as above, but for an OCaml result value *)
+val result : 'a encoding -> 'b encoding -> ('a, 'b) result encoding
+
 (** {2 JSON type combinators for objects} *) (*********************************)
 
 (** A first class handle to a JSON field. *)
