@@ -484,11 +484,10 @@ let schema ?definitions_path encoding =
                           maximum = Some (maximum, `Inclusive) })
       | Float None -> element (Number numeric_specs)
       | Describe { id = name ; title ; description ; encoding } ->
-          let open Json_schema in
-          let schema = patch_description ?title ?description (schema encoding) in
-          let s, def = add_definition name schema !sch in
-          sch := fst (merge_definitions (!sch, s)) ;
-          def
+        let schema = patch_description ?title ?description (schema encoding) in
+        let s, def = add_definition ?definitions_path name schema !sch in
+        sch := fst (merge_definitions (!sch, s)) ;
+        def
       | Custom (_, s) ->
         sch := fst (merge_definitions (!sch, s)) ;
         root s
