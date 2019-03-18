@@ -1,7 +1,7 @@
 opam-version: "2.0"
 name: "ocplib-json-typed-bson"
 synopsis: "A Json_repr compatible implementation of the JSON compatible subset of BSON"
-version: "0.7"
+version: "0.7.1"
 maintainer: "Benjamin Canou <benjamin@ocamlpro.com>"
 authors: "Benjamin Canou <benjamin@ocamlpro.com>"
 homepage: "https://github.com/ocamlpro/ocplib-json-typed"
@@ -13,6 +13,6 @@ build: [ "dune" "build" "-j" jobs "-p" name "@install" "@runtest" {with-test} ]
 depends: [
   "ocaml" {>= "4.03.0"}
   "dune" {build & >= "1.0.1"}
-  "ocplib-json-typed" {= "0.7" }
+  "ocplib-json-typed" {= "0.7.1" }
   "ocplib-endian" {>= "1.0"}
 ]

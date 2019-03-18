@@ -1,7 +1,7 @@
 opam-version: "2.0"
 name: "ocplib-json-typed"
 synopsis: "Type-aware JSON and JSON schema utilities"
-version: "0.7"
+version: "0.7.1"
 maintainer: "Benjamin Canou <benjamin@ocamlpro.com>"
 authors: "Benjamin Canou <benjamin@ocamlpro.com>"
 homepage: "https://github.com/ocamlpro/ocplib-json-typed"
