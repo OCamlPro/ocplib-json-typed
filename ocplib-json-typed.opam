@@ -1,7 +1,7 @@
 opam-version: "2.0"
 name: "ocplib-json-typed"
-synopsis: "Type-aware JSON and JSON schema utilities"
-version: "0.7.1"
+synopsis: "Libraries for reliable manipulation JSON objects"
+version: "dev"
 maintainer: "Benjamin Canou <benjamin@ocamlpro.com>"
 authors: "Benjamin Canou <benjamin@ocamlpro.com>"
 homepage: "https://github.com/ocamlpro/ocplib-json-typed"
@@ -9,9 +9,12 @@ bug-reports: "https://github.com/ocamlpro/ocplib-json-typed/issues"
 license: "LGPLv3 w/ linking exception"
 dev-repo: "git+https://github.com/ocamlpro/ocplib-json-typed.git"
 
-build: [ "dune" "build" "-j" jobs "-p" name "@install" "@runtest" {with-test} ]
+build: [
+  ["dune" "build" "-j" jobs "-p" name "@install"]
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
+]
 depends: [
   "ocaml" {>= "4.03.0"}
-  "dune" {build & >= "1.0.1"}
+  "dune" {build & >= "1.7"}
   "uri" {>= "1.9.0" }
 ]
