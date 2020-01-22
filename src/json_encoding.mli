@@ -332,8 +332,11 @@ type 't case
 (** To be used inside a {!union}. Takes a [encoding] for a specific
     case, and a converter to and from a type common to all cases
     (['t]). Usually, it consists in boxing / deboxing the specific
-    data in an OCaml sum type contructor. *)
-val case : 'a encoding -> ('t -> 'a option) -> ('a -> 't) -> 't case
+    data in an OCaml sum type constructor. *)
+val case :
+  ?title:string ->
+  ?description:string ->
+  'a encoding -> ('b -> 'a option) -> ('a -> 'b) -> 'b case
 
 (** A utility to build destructors for custom encoded sum types. *)
 val union : 't case list -> 't encoding
