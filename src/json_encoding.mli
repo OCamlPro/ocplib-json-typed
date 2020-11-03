@@ -178,6 +178,9 @@ val opt : ?title:string -> ?description:string -> string -> 't encoding -> 't op
 (** An optional field of a given type, ommited when equal to a default value. *)
 val dft : ?title:string -> ?description:string -> string -> 't encoding -> 't -> 't field
 
+(** An optional field of a given type, default when ommited on json destruct. *)
+val ddft : ?title:string -> ?description:string -> string -> 't encoding -> 't -> 't field
+
 (** An encoding of an OCaml value by a singleton object. *)
 val obj1 :
   'f1 field ->

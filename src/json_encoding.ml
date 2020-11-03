@@ -109,6 +109,12 @@ and _ field =
             description: string option ;
             default: 'a ;
           } -> 'a field
+  | DDft : { name: string ;
+              encoding:  'a encoding ;
+              title: string option ;
+              description: string option ;
+              default: 'a ;
+            } -> 'a field
 
 and 't case =
   | Case : { encoding : 'a encoding ;
@@ -152,7 +158,8 @@ module Make (Repr : Json_repr.Repr) = struct
         | Array t ->
           let w v = construct t v in
           (fun arr -> Repr.repr (`A (Array.to_list (Array.map w arr))))
-        | Obj (Req { name = n ; encoding = t }) ->
+        | Obj (Req { name = n ; encoding = t })
+        | Obj (DDft { name = n ; encoding = t ; default = _ }) ->
           let w v = construct t v in
           (fun v -> Repr.repr (`O [ n, w v ]))
         | Obj (Dft { name = n ; encoding = t ; default = d }) ->
@@ -347,7 +354,8 @@ module Make (Repr : Json_repr.Repr) = struct
            | Not_found -> None, fields, false
            | Cannot_destruct (path, err) ->
              raise (Cannot_destruct (`Field n :: path, err)))
-      | Obj (Dft { name = n ; encoding = t ; default = d }) ->
+      | Obj (Dft { name = n ; encoding = t ; default = d })
+      | Obj (DDft { name = n ; encoding = t ; default = d }) ->
         (fun fields ->
            try
              let v, rest = assoc [] n fields in
@@ -421,7 +429,8 @@ let schema ?definitions_path encoding =
           [ [ n, patch_description ?title ?description (schema t), true, None ], false ]
       | Obj (Opt { name = n ; encoding = t ; title ; description }) ->
           [ [ n, patch_description ?title ?description (schema t), false, None ], false ]
-      | Obj (Dft { name = n ; encoding = t ; title ; description ; default = d }) ->
+      | Obj (Dft { name = n ; encoding = t ; title ; description ; default = d })
+      | Obj (DDft { name = n ; encoding = t ; title ; description ; default = d }) ->
         let d = Json_repr.repr_to_any (module Json_repr.Ezjsonm) (Ezjsonm_encoding.construct t d) in
         [ [ n, patch_description ?title ?description (schema t), false, Some d], false ]
       | Objs (o1, o2) ->
@@ -545,6 +554,8 @@ let opt ?title ?description n t =
   Opt { name = n ; encoding = t ; title ; description }
 let dft ?title ?description n t d =
   Dft { name = n ; encoding = t ; title ; description ; default = d }
+let ddft ?title ?description n t d =
+  DDft { name = n ; encoding = t ; title ; description ; default = d }
 
 let mu name ?title ?description self = Mu { id = name ; title ; description ; self }
 let null = Null
