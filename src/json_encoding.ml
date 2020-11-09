@@ -716,7 +716,7 @@ let constant s = Constant s
 
 let string_enum cases =
   let schema =
-    let specs = Json_schema.({ pattern = None ; min_length = 0 ; max_length = None }) in
+    let specs = Json_schema.string_specs in
     let enum = List.map (fun (s, _) -> Json_repr.(repr_to_any (module Ezjsonm)) (`String s)) cases in
     Json_schema.(update { (element (String specs)) with enum = Some enum } any) in
   let len = List.length cases in

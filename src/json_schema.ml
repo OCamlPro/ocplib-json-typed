@@ -84,7 +84,8 @@ and object_specs =
 and string_specs =
   { pattern : string option ;
     min_length : int ;
-    max_length : int option }
+    max_length : int option ;
+    str_format : string option }
 
 (* box an element kind without any optional field *)
 let element kind =
@@ -267,10 +268,12 @@ let rec pp_element ppf element =
           end
         | None ->
           begin match element.kind with
-            | String { pattern = None ; min_length = 0 ; max_length = None} ->
+            | String { pattern = None ; min_length = 0 ; max_length = None; str_format = None} ->
               Format.fprintf ppf "string"
             | String { pattern = Some pat ; min_length = 0 ; max_length = None} ->
               Format.fprintf ppf "/%s/" pat
+            | String { str_format = Some f ; min_length = 0 ; max_length = None} ->
+              Format.fprintf ppf "%s" f
             | String { pattern ; min_length ; max_length } ->
               Format.fprintf ppf "%a (%alength%a)"
                 (fun ppf -> function
@@ -608,11 +611,12 @@ module Make (Repr : Json_repr.Repr) = struct
            | Some (v, `Exclusive) ->
              [ "maximum", Repr.repr (`Float v) ;
                "exclusiveMaximum", Repr.repr (`Bool true) ] )
-        | String { pattern ; min_length ; max_length } ->
+        | String { pattern ; min_length ; max_length; str_format } ->
           set_always "type" (`String "string") @
           set_if_neq "minLength" min_length 0 (fun i -> `Float (float i)) @
           set_if_some "maxLength" max_length (fun i -> `Float (float i)) @
-          set_if_some "pattern" pattern (fun s -> `String s)
+          set_if_some "pattern" pattern (fun s -> `String s) @
+          set_if_some "format" str_format (fun s -> `String s)
         | Boolean ->
           set_always "type" (`String "boolean")
         | Null ->
@@ -650,7 +654,7 @@ module Make (Repr : Json_repr.Repr) = struct
   let at_field n = at_path [ `Field n ]
   let at_index i = at_path [ `Index i ]
 
-  let of_json json =
+  let of_json ?(definitions_path="/definitions/") json =
     (* parser combinators *)
     let opt_field obj n = match Repr.view obj with
       | `O ls -> (try Some (List.assoc n ls) with Not_found -> None)
@@ -890,8 +894,9 @@ module Make (Repr : Json_repr.Repr) = struct
           let pattern = opt_string_field json "pattern" in
           let min_length = opt_length_field json "minLength" in
           let max_length = opt_length_field json "maxLength" in
+          let str_format = opt_string_field json "format" in
           let min_length = match min_length with None -> 0 | Some l -> l in
-          { pattern ; min_length ; max_length } in
+          { pattern ; min_length ; max_length; str_format } in
         String specs
       | "array" ->
         let specs =
@@ -1009,7 +1014,7 @@ module Make (Repr : Json_repr.Repr) = struct
     (* force the addition of everything inside /definitions *)
     (match Repr.view (query [ `Field "definitions" ] json) with
      | `O all ->
-       let all = List.map (fun (n, _) -> Uri.of_string ("#/definitions/" ^ n)) all in
+       let all = List.map (fun (n, _) -> Uri.of_string ("#" ^ definitions_path ^ n)) all in
        List.iter (fun uri -> collect_definition uri |> ignore) all
      | _ -> ()
      | exception  Not_found -> ()) ;
@@ -1205,7 +1210,8 @@ module Make (Repr : Json_repr.Repr) = struct
   let string_specs =
     { pattern = None ;
       min_length = 0 ;
-      max_length = None }
+      max_length = None;
+      str_format = None}
   let numeric_specs =
     { multiple_of = None ;
       minimum = None ;
