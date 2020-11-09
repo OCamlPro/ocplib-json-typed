@@ -407,32 +407,33 @@ module Ezjsonm_encoding = Make (Json_repr.Ezjsonm)
 let patch_description ?title ?description (elt : Json_schema.element) =
   match title, description with
   | None, None -> elt
-  | Some _, None -> { elt with title }
-  | None, Some _ -> { elt with description }
-  | Some _, Some _ -> { elt with title ; description }
+  | Some _, None -> { elt with Json_schema.title }
+  | None, Some _ -> { elt with Json_schema.description }
+  | Some _, Some _ -> { elt with Json_schema.title ; description }
 
 let schema ?definitions_path encoding =
   let open Json_schema in
   let sch = ref any in
   let rec prod l1 l2 = match l1 with
     | [] -> []
-    | (l1, b1) :: es ->
-      List.map (fun (l2, b2) -> l1 @ l2, b1 || b2) l2
+    | (l1, b1, e1) :: es ->
+      List.map (fun (l2, b2, e2) ->
+          l1 @ l2, b1 || b2, (match e1, e2 with | Some e, _ | _, Some e -> Some e | _ -> None)) l2
       @ prod es l2 in
   let rec object_schema
-    : type t. t encoding -> ((string * element * bool * Json_repr.any option) list * bool) list
+    : type t. t encoding -> ((string * element * bool * Json_repr.any option) list * bool * element option) list
     = function
       | Conv (_, _, o, None) -> object_schema o
-      | Empty -> [ [], false ]
-      | Ignore -> [ [], true ]
+      | Empty -> [ [], false, None ]
+      | Ignore -> [ [], true, None]
       | Obj (Req { name = n ; encoding = t ; title ; description }) ->
-          [ [ n, patch_description ?title ?description (schema t), true, None ], false ]
+          [ [ n, patch_description ?title ?description (schema t), true, None ], false, None]
       | Obj (Opt { name = n ; encoding = t ; title ; description }) ->
-          [ [ n, patch_description ?title ?description (schema t), false, None ], false ]
+          [ [ n, patch_description ?title ?description (schema t), false, None ], false, None]
       | Obj (Dft { name = n ; encoding = t ; title ; description ; default = d })
       | Obj (DDft { name = n ; encoding = t ; title ; description ; default = d }) ->
         let d = Json_repr.repr_to_any (module Json_repr.Ezjsonm) (Ezjsonm_encoding.construct t d) in
-        [ [ n, patch_description ?title ?description (schema t), false, Some d], false ]
+        [ [ n, patch_description ?title ?description (schema t), false, Some d], false, None]
       | Objs (o1, o2) ->
         prod (object_schema o1) (object_schema o2)
       | Union [] ->
@@ -443,7 +444,12 @@ let schema ?definitions_path encoding =
              (fun (Case { encoding = o }) -> object_schema o)
              cases)
       | Mu { self } as enc -> object_schema (self enc)
-      | Describe { encoding = t } -> object_schema t
+      | Describe { title ; description ; encoding } ->
+        let elt = patch_description ?title ?description (schema encoding) in
+        begin match object_schema encoding with
+          | [ l, b, _ ] -> [ l, b, Some elt ]
+          | l -> l
+        end
       | Conv (_, _, _, Some _) (* FIXME: We could do better *)
       | _ -> invalid_arg "Json_encoding.schema: consequence of bad merge_objs"
   and array_schema
@@ -511,29 +517,47 @@ let schema ?definitions_path encoding =
         element (Monomorphic_array (schema t, array_specs))
       | Objs _ as o ->
         begin match object_schema o with
-          | [ properties, ext ] ->
+          | [ properties, ext, elt ] ->
             let additional_properties = if ext then Some (element Any) else None in
-            element (Object { object_specs with properties ; additional_properties })
+            begin match elt with
+              | None -> element (Object { object_specs with properties ; additional_properties })
+              | Some elt ->
+                { (element (Object { object_specs with properties ; additional_properties })) with
+                  title = elt.title; description = elt.description }
+            end
           | more ->
             let elements =
               List.map
-                (fun (properties, ext) ->
+                (fun (properties, ext, elt) ->
                    let additional_properties = if ext then Some (element Any) else None in
-                   element (Object { object_specs with properties ; additional_properties }))
+                   match elt with
+                   | None -> element (Object { object_specs with properties ; additional_properties })
+                   | Some elt ->
+                     { (element (Object { object_specs with properties ; additional_properties })) with
+                       title = elt.title; description = elt.description })
                 more in
             element (Combine (One_of, elements))
         end
       | Obj _ as o ->
         begin match object_schema o with
-          | [ properties, ext ] ->
+          | [ properties, ext, elt ] ->
             let additional_properties = if ext then Some (element Any) else None in
-            element (Object { object_specs with properties ; additional_properties })
+            begin match elt with
+              | None -> element (Object { object_specs with properties ; additional_properties })
+              | Some elt ->
+                { (element (Object { object_specs with properties ; additional_properties })) with
+                  title = elt.title; description = elt.description }
+            end
           | more ->
             let elements =
               List.map
-                (fun (properties, ext) ->
+                (fun (properties, ext, elt) ->
                    let additional_properties = if ext then Some (element Any) else None in
-                   element (Object { object_specs with properties ; additional_properties }))
+                   match elt with
+                   | None -> element (Object { object_specs with properties ; additional_properties })
+                   | Some elt ->
+                     { (element (Object { object_specs with properties ; additional_properties })) with
+                       title = elt.title; description = elt.description })
                 more in
             element (Combine (One_of, elements))
         end
