@@ -336,7 +336,10 @@ type 't case
     case, and a converter to and from a type common to all cases
     (['t]). Usually, it consists in boxing / deboxing the specific
     data in an OCaml sum type contructor. *)
-val case : 'a encoding -> ('t -> 'a option) -> ('a -> 't) -> 't case
+val case :
+  ?title : string ->
+  ?description : string ->
+  'a encoding -> ('t -> 'a option) -> ('a -> 't) -> 't case
 
 (** A utility to build destructors for custom encoded sum types. *)
 val union : 't case list -> 't encoding

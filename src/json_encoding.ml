@@ -118,6 +118,8 @@ and _ field =
 
 and 't case =
   | Case : { encoding : 'a encoding ;
+             title : string option;
+             description : string option;
              proj : ('t -> 'a option) ;
              inj : ('a -> 't) } -> 't case
 
@@ -565,7 +567,8 @@ let schema ?definitions_path encoding =
       | Tups _ as t -> element (Array (array_schema t, array_specs))
       | Union cases -> (* FIXME: smarter merge *)
         let elements =
-          List.map (fun (Case { encoding }) -> schema encoding) cases in
+          List.map (fun (Case { encoding; title; description }) ->
+              patch_description ?title ?description (schema encoding)) cases in
         element (Combine (One_of, elements)) in
   let schema = schema encoding in
   update schema !sch
@@ -880,8 +883,8 @@ let empty =
 let unit =
   Ignore
 
-let case encoding proj inj  =
-  Case { encoding ; proj ; inj }
+let case ?title ?description encoding proj inj  =
+  Case { encoding ; proj ; inj; title ; description }
 
 let union = function
   | [] -> invalid_arg "Json_encoding.union"
