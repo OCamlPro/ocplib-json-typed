@@ -327,6 +327,9 @@ val merge_tups :
   'a2 encoding ->
   ('a1 * 'a2) encoding
 
+val partial : 'a encoding -> ('a * Json_repr.any) encoding
+val partial_ezjsonm : 'a encoding -> ('a * Json_repr.ezjsonm) encoding
+
 (** {2 JSON type combinators for unions} *) (**********************************)
 
 (** A case for describing union types using {!union} ans {!case}. *)

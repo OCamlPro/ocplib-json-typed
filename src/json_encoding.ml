@@ -65,6 +65,7 @@ type _ encoding =
   | Array : 'a encoding -> 'a array encoding
   | Obj : 'a field -> 'a encoding
   | Objs : 'a encoding * 'b encoding -> ('a * 'b) encoding
+  | Partial : 'a encoding -> ('a * Json_repr.any) encoding
   | Tup : 'a encoding -> 'a encoding
   | Tups : 'a encoding * 'b encoding -> ('a * 'b) encoding
   | Custom : 't repr_agnostic_custom * Json_schema.schema -> 't encoding
@@ -178,6 +179,13 @@ module Make (Repr : Json_repr.Repr) = struct
            | `O l1, `O l2 -> Repr.repr (`O (l1 @ l2))
            | `Null, `Null
            | _ -> invalid_arg "Json_encoding.construct: consequence of bad merge_objs")
+        | Partial o ->
+          let w v = construct o v in
+          (fun (v1, v2) ->
+             match Repr.view (w v1), Repr.view (Json_repr.any_to_repr (module Repr) v2) with
+             | `O l1, `O l2 -> Repr.repr (`O (l1 @ l2))
+             | `O l1, `Null -> Repr.repr (`O l1)
+             | _ -> invalid_arg "Json_encoding.construct: consequence of bad merge_objs")
         | Tup t ->
           let w v = construct t v in
           (fun v -> Repr.repr (`A [ w v ]))
@@ -282,6 +290,13 @@ module Make (Repr : Json_repr.Repr) = struct
                | _ -> r
              end
            | k -> raise @@ unexpected k "object")
+      | Partial _ as t ->
+        let d = destruct_obj t in
+        (fun v -> match Repr.view v with
+           | `O fields ->
+             let r, _rest, _ign = d fields in
+             r
+           | k -> raise @@ unexpected k "object")
       | Tup _ as t ->
         let r, i = destruct_tup 0 t in
         (fun v -> match Repr.view v with
@@ -373,6 +388,11 @@ module Make (Repr : Json_repr.Repr) = struct
            let r1, rest, ign1 = d1 fields in
            let r2, rest, ign2 = d2 rest in
            (r1, r2), rest, ign1 || ign2)
+      | Partial o ->
+        let d = destruct_obj o in
+        (fun fields ->
+           let r, rest, ign = d fields in
+           (r, Json_repr.repr_to_any (module Repr) (Repr.repr (`O rest))), [], ign)
       | Conv (_, fto, t, _) ->
         let d = destruct_obj t in
         (fun fields ->
@@ -438,6 +458,7 @@ let schema ?definitions_path encoding =
         [ [ n, patch_description ?title ?description (schema t), false, Some d], false, None]
       | Objs (o1, o2) ->
         prod (object_schema o1) (object_schema o2)
+      | Partial o -> List.map (fun (p, _ext, elt) -> (p, true, elt)) (object_schema o)
       | Union [] ->
         invalid_arg "Json_encoding.schema: empty union in object"
       | Union cases ->
@@ -518,6 +539,29 @@ let schema ?definitions_path encoding =
       | Array t ->
         element (Monomorphic_array (schema t, array_specs))
       | Objs _ as o ->
+        begin match object_schema o with
+          | [ properties, ext, elt ] ->
+            let additional_properties = if ext then Some (element Any) else None in
+            begin match elt with
+              | None -> element (Object { object_specs with properties ; additional_properties })
+              | Some elt ->
+                { (element (Object { object_specs with properties ; additional_properties })) with
+                  title = elt.title; description = elt.description }
+            end
+          | more ->
+            let elements =
+              List.map
+                (fun (properties, ext, elt) ->
+                   let additional_properties = if ext then Some (element Any) else None in
+                   match elt with
+                   | None -> element (Object { object_specs with properties ; additional_properties })
+                   | Some elt ->
+                     { (element (Object { object_specs with properties ; additional_properties })) with
+                       title = elt.title; description = elt.description })
+                more in
+            element (Combine (One_of, elements))
+        end
+      | Partial _ as o ->
         begin match object_schema o with
           | [ properties, ext, elt ] ->
             let additional_properties = if ext then Some (element Any) else None in
@@ -736,6 +780,13 @@ let tup10 f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 =
     (let rest = Tups (Tup f6, Tups (Tup f7, Tups (Tup f8, Tups (Tup f9, Tup f10)))) in
      Tups (Tup f1, Tups (Tup f2, Tups (Tup f3, Tups (Tup f4, Tups (Tup f5, rest))))))
 
+let partial enc = Partial enc
+let partial_ezjsonm enc =
+  conv
+    (fun (x, json) -> x, Json_repr.to_any json)
+    (fun (x, json) -> x, Json_repr.from_any json)
+    (Partial enc)
+
 let repr_agnostic_custom { write ; read } ~schema =
   Custom ({ write ; read }, schema)
 
@@ -800,6 +851,7 @@ let rec is_nullable: type t. t encoding -> bool = function
   | Obj _ -> false
   | Tup _ -> false
   | Objs _ -> false
+  | Partial _ -> false
   | Tups _ -> false
   | Null -> true
   | Ignore -> true
@@ -865,6 +917,7 @@ let merge_objs o1 o2 =
   let rec is_obj : type t. t encoding -> bool = function
     | Obj _ -> true
     | Objs _ (* by construction *) -> true
+    | Partial _ -> true
     | Conv (_, _, t, None) -> is_obj t
     | Empty -> true
     | Ignore -> true

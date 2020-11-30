@@ -1,5 +1,5 @@
 all:
-	dune build @install @runtest
+	dune build
 
 install:
 	dune install
